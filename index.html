@@ -1,0 +1,881 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0b0d12">
+<title>EXTREME DRIVING</title>
+
+<style>
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html,body { width:100%; height:100%; overflow:hidden; background:#0b0d12; touch-action:none;
+  font-family:"Trebuchet MS","Segoe UI",system-ui,sans-serif; color:#e8ecf5; user-select:none; }
+canvas { display:block; width:100%; height:100%; }
+
+/* ---------- ЭКРАНЫ ---------- */
+.screen { position:fixed; inset:0; display:none; flex-direction:column; align-items:center;
+  justify-content:center; gap:14px; z-index:20; padding:20px;
+  background:radial-gradient(ellipse at 50% 35%, #1b2233 0%, #0b0d12 70%); }
+.screen.on { display:flex; }
+
+.logo { font-size:clamp(34px,8vw,74px); font-weight:900; letter-spacing:2px; line-height:.92;
+  text-align:center; color:#ffd23f; text-shadow:0 0 26px rgba(255,180,40,.55), 0 5px 0 #a8681a;
+  transform:skewX(-6deg); }
+.logo small { display:block; font-size:.45em; color:#fff; letter-spacing:6px;
+  text-shadow:0 0 18px rgba(120,190,255,.6); }
+.sub { color:#8ea0bd; font-size:14px; letter-spacing:1px; text-align:center; }
+
+.btn { min-width:230px; padding:14px 26px; border:none; border-radius:12px; cursor:pointer;
+  font-family:inherit; font-size:19px; font-weight:800; letter-spacing:1px; color:#fff;
+  background:linear-gradient(#3d84f7,#1f57c4); box-shadow:0 4px 0 #143a86, 0 8px 22px rgba(0,0,0,.5);
+  transition:transform .06s, filter .12s; }
+.btn:active { transform:translateY(3px); box-shadow:0 1px 0 #143a86; }
+.btn.y { background:linear-gradient(#ffc93c,#f0930d); box-shadow:0 4px 0 #a05c05,0 8px 22px rgba(0,0,0,.5); color:#20160a; }
+.btn.g { background:linear-gradient(#49d16b,#1f9c43); box-shadow:0 4px 0 #13692c,0 8px 22px rgba(0,0,0,.5); }
+.btn.sm { min-width:auto; padding:10px 18px; font-size:15px; }
+.row { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+
+.card { background:rgba(20,26,40,.9); border:1px solid #2b3550; border-radius:16px;
+  padding:20px 26px; max-width:560px; width:100%; }
+.card h2 { font-size:22px; margin-bottom:12px; color:#ffd23f; letter-spacing:1px; }
+.line { display:flex; justify-content:space-between; padding:7px 0; border-bottom:1px dashed #2b3550; font-size:17px; }
+.line:last-child { border:none; }
+.line b { color:#ffd23f; }
+
+/* ---------- HUD ---------- */
+#hud { position:fixed; inset:0; pointer-events:none; z-index:10; display:none; }
+#hud.on { display:block; }
+.pill { position:absolute; top:12px; background:rgba(10,14,22,.72); border:1px solid #2b3550;
+  border-radius:11px; padding:7px 13px; font-size:15px; font-weight:800; letter-spacing:.5px;
+  backdrop-filter:blur(6px); }
+#pTime { left:50%; transform:translateX(-50%); color:#fff; font-size:19px; }
+#pP1 { left:12px; color:#5fd0ff; }
+#pP2 { right:12px; color:#ff8a5c; }
+.hpbar { width:74px; height:5px; background:#2a3247; border-radius:3px; margin-top:5px; overflow:hidden; }
+.hpbar i { display:block; height:100%; background:#49d16b; transition:width .12s, background .12s; }
+#btnPause { position:absolute; top:12px; right:12px; pointer-events:auto; }
+#hint { position:absolute; bottom:14px; left:50%; transform:translateX(-50%); color:#7e8ca8;
+  font-size:13px; text-align:center; }
+</style>
+
+<canvas id="cv"></canvas>
+
+<div id="hud">
+  <div class="pill" id="pP1">P1 <span>0</span><div class="hpbar"><i style="width:100%"></i></div></div>
+  <div class="pill" id="pTime">1:30</div>
+  <div class="pill" id="pP2">P2 <span>0</span><div class="hpbar"><i style="width:100%"></i></div></div>
+  <div id="hint"></div>
+</div>
+
+<div class="screen on" id="scMenu">
+  <div class="logo">EXTREME<small>DRIVING</small></div>
+  <div class="sub" id="coinLine">🪙 Джон.А: 0</div>
+  <button class="btn y" onclick="UI.play()">ИГРАТЬ</button>
+  <button class="btn" onclick="UI.garage()">ГАРАЖ</button>
+  <button class="btn" onclick="UI.shop()">МАГАЗИН</button>
+  <div class="sub" id="recLine"></div>
+</div>
+
+<div class="screen" id="scSetup">
+  <div class="card">
+    <h2>РЕЖИМ</h2>
+    <div class="row" id="modeRow"></div>
+    <h2 style="margin-top:18px">ИГРОКИ</h2>
+    <div class="row">
+      <button class="btn sm g" onclick="UI.setPlayers(1)">1 ИГРОК</button>
+      <button class="btn sm" onclick="UI.setPlayers(2)">2 ИГРОКА</button>
+    </div>
+    <h2 style="margin-top:18px">АРЕНА</h2>
+    <div class="row" id="arenaRow"></div>
+  </div>
+  <div class="row">
+    <button class="btn g" onclick="UI.start()">ПОЕХАЛИ</button>
+    <button class="btn sm" onclick="UI.show('scMenu')">НАЗАД</button>
+  </div>
+</div>
+
+<div class="screen" id="scResult">
+  <div class="card">
+    <h2>РЕЗУЛЬТАТ</h2>
+    <div id="resBody"></div>
+  </div>
+  <div class="row">
+    <button class="btn g" onclick="UI.start()">ЕЩЁ РАЗ</button>
+    <button class="btn sm" onclick="UI.show('scMenu')">В МЕНЮ</button>
+  </div>
+</div>
+
+<script>
+/* ==========================================================================
+   ⚙️  НАСТРОЙКИ ИГРЫ — МЕНЯЙ ЛЮБЫЕ ЧИСЛА И ОБНОВИ СТРАНИЦУ (F5)
+   ========================================================================== */
+const S = {
+  // --- УПРАВЛЕНИЕ ---
+  ПРОСТОЕ_УПРАВЛЕНИЕ: true,  // true = нажал вверх, машина едет вверх (легко)
+                             // false = как в настоящей машине: газ, тормоз, руль
+
+  // --- МАШИНА ---
+  МАКС_СКОРОСТЬ:      4.6,   // больше = быстрее едет
+  РАЗГОН:             0.16,  // больше = резвее стартует
+  ТОРМОЗ:             0.22,  // сила торможения
+  ПОВОРОТ:            0.075, // больше = круче руль
+  ЦЕПКОСТЬ:           0.88,  // 1 = едет как по рельсам, 0.6 = сильно заносит
+  ТРЕНИЕ:             0.985, // накат когда газ отпущен
+  ТУРБО_СИЛА:         1.85,  // во сколько раз турбо ускоряет
+  ТУРБО_ЗАПАС:        100,   // сколько турбо в баке
+  ТУРБО_РАСХОД:       1.4,   // трата за кадр
+  ТУРБО_ВОССТАН:      0.35,  // восстановление за кадр
+
+  // --- БОЙ ---
+  ЗДОРОВЬЕ:           100,   // прочность машины
+  УРОН_ПОРОГ:         1.2,   // ниже этой скорости удар не считается
+  УРОН_СИЛА:          13,    // множитель урона
+  ОЧКИ_ЗА_УРОН:       9,     // очков за единицу урона
+  ОТСКОК:             1.35,  // как сильно машины разлетаются
+  РЕСПАВН_СЕК:        2,     // через сколько секунд возвращаешься после взрыва
+
+  // --- ЭКОНОМИКА (монеты «Джон.А») ---
+  МОНЕТ_ЗА_100_ОЧКОВ: 14,    // сколько монет дают за 100 очков
+  МОНЕТ_ЗА_ПОБЕДУ:    60,    // бонус победителю
+  МОНЕТ_УТЕШИТЕЛЬНЫХ: 20,    // дают всегда, даже если проиграл
+
+  // --- БОЙ И ВРЕМЯ ---
+  ВРЕМЯ_БОЯ:          90,    // секунд на арену
+  БОТОВ_В_БОЮ:        3,     // сколько соперников
+
+  // --- СОЧНОСТЬ (эффекты) ---
+  ЗАМОРОЗКА_УДАРА:    70,    // мс стоп-кадра при сильном ударе (0 = выключить)
+  ТРЯСКА:             1.0,   // сила тряски экрана
+  СЛЕДЫ_ШИН:          true,  // оставлять чёрные полосы на асфальте
+  ЧАСТИЦЫ:            true,  // искры, дым, обломки
+
+  // --- КАМЕРА ---
+  ЗУМ_МИН:            0.62,
+  ЗУМ_МАКС:           1.25,
+  КАМЕРА_ПЛАВНОСТЬ:   0.09,
+};
+
+/* --- МАШИНЫ: имя, цена, цвет, скорость/разгон/прочность (множители) --- */
+const CARS = [
+  { id:'rustler',  name:'RUSTLER',   price:0,    color:'#e8433a', spd:1.00, acc:1.00, hp:1.00 },
+  { id:'bulldozer',name:'BULLDOZER', price:500,  color:'#57c94a', spd:0.88, acc:0.92, hp:1.45 },
+  { id:'phantom',  name:'PHANTOM',   price:900,  color:'#3d84f7', spd:1.12, acc:1.10, hp:0.85 },
+  { id:'thunder',  name:'THUNDER',   price:1600, color:'#ffc93c', spd:1.18, acc:1.16, hp:0.92 },
+  { id:'shadow',   name:'SHADOW',    price:2600, color:'#8b5cf6', spd:1.26, acc:1.22, hp:0.95 },
+  { id:'blaze',    name:'BLAZE',     price:4000, color:'#ff7a1a', spd:1.34, acc:1.30, hp:1.05 },
+];
+
+/* --- АРЕНЫ: размер поля + препятствия (x, y, радиус, тип) --- */
+const ARENAS = [
+  { id:'dump', name:'ГОРОДСКАЯ СВАЛКА', w:1500, h:1050, floor:'#191c24', line:'#242a38',
+    obs:[[420,300,46,'tire'],[1080,300,46,'tire'],[420,750,46,'tire'],[1080,750,46,'tire'],
+         [750,525,74,'crate'],[750,180,40,'crate'],[750,870,40,'crate'],
+         [200,525,38,'tire'],[1300,525,38,'tire']] },
+  { id:'canyon', name:'ПУСТЫННЫЙ КАНЬОН', w:1700, h:1000, floor:'#241d18', line:'#33291f',
+    obs:[[560,500,86,'rock'],[1140,500,86,'rock'],[850,220,52,'rock'],[850,780,52,'rock'],
+         [300,250,44,'rock'],[1400,750,44,'rock']] },
+  { id:'stadium', name:'СТАДИОН', w:1350, h:1350, floor:'#16211a', line:'#20301f',
+    obs:[[675,675,110,'crate'],[675,300,40,'tire'],[675,1050,40,'tire'],
+         [300,675,40,'tire'],[1050,675,40,'tire']] },
+];
+
+/* --- РЕЖИМЫ (Racing и Buggy дописываются следующим шагом) --- */
+const MODES = [
+  { id:'crash', name:'CRASH ARENA', ready:true },
+  { id:'race',  name:'ГОНКА',        ready:false },
+  { id:'buggy', name:'ИСПЫТАНИЯ',    ready:false },
+];
+
+/* ==========================================================================
+   Дальше — код игры. Числа менять лучше в блоке НАСТРОЙКИ выше.
+   ========================================================================== */
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+
+function resize(){
+  DPR = Math.min(devicePixelRatio || 1, 2);
+  W = innerWidth; H = innerHeight;
+  cv.width = W * DPR; cv.height = H * DPR;
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+addEventListener('resize', resize); resize();
+
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const lerp=(a,b,t)=>a+(b-a)*t;
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const dist=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+function angLerp(a,b,t){ let d=((b-a+Math.PI*3)%(Math.PI*2))-Math.PI; return a+d*t; }
+
+/* ---------------- СОХРАНЕНИЕ ---------------- */
+const SAVE_KEY = 'extreme_driving_save_v1';
+let save = { coins:0, owned:['rustler'], car:'rustler', best:0,
+             up:{spd:0,acc:0,hp:0,turbo:0}, color:null };
+try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s) save = Object.assign(save, s); } catch(e){}
+function persist(){ try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch(e){} }
+
+/* ---------------- УПРАВЛЕНИЕ ---------------- */
+const keys = {};
+addEventListener('keydown', e=>{ keys[e.code]=true;
+  if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'].includes(e.code)) e.preventDefault(); });
+addEventListener('keyup', e=>{ keys[e.code]=false; });
+
+const KEYMAP = [
+  { up:'KeyW', down:'KeyS', left:'KeyA', right:'KeyD', turbo:'ShiftLeft' },
+  { up:'ArrowUp', down:'ArrowDown', left:'ArrowLeft', right:'ArrowRight', turbo:'ShiftRight' },
+];
+
+/* Тач: левая половина экрана — стик игрока 1, правая — игрока 2.
+   Долгое касание в нижнем углу своей половины = турбо. */
+const touch = [ {act:false,dx:0,dy:0,turbo:false}, {act:false,dx:0,dy:0,turbo:false} ];
+const tPts = {};
+function tSide(x){ return (game.players===2 && x > W/2) ? 1 : 0; }
+function tStart(id,x,y){
+  const s = tSide(x);
+  if (y > H*0.72 && ((s===0 && x < W*0.16) || (s===1 && x > W*0.84))) {
+    touch[s].turbo = true; tPts[id] = {s, turbo:true}; return;
+  }
+  tPts[id] = {s, ox:x, oy:y, turbo:false}; touch[s].act = true; touch[s].dx=0; touch[s].dy=0;
+}
+function tMove(id,x,y){
+  const p = tPts[id]; if(!p || p.turbo) return;
+  const dx=x-p.ox, dy=y-p.oy, l=Math.hypot(dx,dy);
+  if (l > 6){ touch[p.s].dx = dx/l; touch[p.s].dy = dy/l; }
+}
+function tEnd(id){
+  const p = tPts[id]; if(!p) return;
+  if (p.turbo) touch[p.s].turbo=false; else { touch[p.s].act=false; touch[p.s].dx=0; touch[p.s].dy=0; }
+  delete tPts[id];
+}
+cv.addEventListener('touchstart',e=>{ e.preventDefault();
+  for(const t of e.changedTouches) tStart(t.identifier,t.clientX,t.clientY); },{passive:false});
+cv.addEventListener('touchmove',e=>{ e.preventDefault();
+  for(const t of e.changedTouches) tMove(t.identifier,t.clientX,t.clientY); },{passive:false});
+cv.addEventListener('touchend',e=>{ for(const t of e.changedTouches) tEnd(t.identifier); });
+cv.addEventListener('touchcancel',e=>{ for(const t of e.changedTouches) tEnd(t.identifier); });
+
+function readInput(i){
+  const k = KEYMAP[i], o = { up:0, down:0, turn:0, turbo:false, dx:0, dy:0, dir:false };
+  if (keys[k.up]) o.up=1; if (keys[k.down]) o.down=1;
+  if (keys[k.left]) o.turn-=1; if (keys[k.right]) o.turn+=1;
+  if (keys[k.turbo] || (i===0 && keys.Space)) o.turbo=true;
+  if (o.up||o.down||o.turn){ o.dir=true; o.dx = o.turn; o.dy = (o.down?1:0)-(o.up?1:0); }
+  const t = touch[i];
+  if (t.act){ o.dir=true; o.dx=t.dx; o.dy=t.dy; o.up=1; }
+  if (t.turbo) o.turbo=true;
+  return o;
+}
+
+/* ---------------- ЧАСТИЦЫ ---------------- */
+const parts = [];
+function spark(x,y,n,col,pow){
+  if(!S.ЧАСТИЦЫ) return;
+  for(let i=0;i<n;i++){ const a=rnd(0,6.283), s=rnd(.6,3.4)*pow;
+    parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,dec:rnd(.02,.05),
+                col,r:rnd(1.6,3.6),g:0}); }
+}
+function smoke(x,y,col){
+  if(!S.ЧАСТИЦЫ) return;
+  parts.push({x,y,vx:rnd(-.3,.3),vy:rnd(-.3,.3),life:1,dec:.016,col,r:rnd(5,11),g:1});
+}
+function updParts(){
+  for(let i=parts.length-1;i>=0;i--){ const p=parts[i];
+    p.x+=p.vx; p.y+=p.vy; p.vx*=.94; p.vy*=.94; p.life-=p.dec;
+    if(p.g) p.r+=.35;
+    if(p.life<=0) parts.splice(i,1); }
+}
+
+/* Следы шин — рисуем на отдельном холсте, который живёт весь бой */
+let skid=null, skidCtx=null;
+function initSkid(a){
+  skid = document.createElement('canvas'); skid.width=a.w; skid.height=a.h;
+  skidCtx = skid.getContext('2d');
+}
+function addSkid(x,y,r,al){
+  if(!S.СЛЕДЫ_ШИН||!skidCtx) return;
+  skidCtx.fillStyle='rgba(0,0,0,'+al+')';
+  skidCtx.beginPath(); skidCtx.arc(x,y,r,0,6.283); skidCtx.fill();
+}
+
+/* ---------------- МАШИНА ---------------- */
+class Car {
+  constructor(o){
+    this.x=o.x; this.y=o.y; this.a=o.a||0;
+    this.vx=0; this.vy=0; this.sp=0;
+    this.def = o.def;
+    this.color = o.color || o.def.color;
+    this.isBot = !!o.bot; this.brain = o.brain || null;
+    this.pi = o.pi ?? -1;                 // индекс игрока (-1 = бот)
+    this.name = o.name || o.def.name;
+    const u = o.up || {spd:0,acc:0,hp:0,turbo:0};
+    this.mSpd = o.def.spd * (1 + u.spd*0.09);
+    this.mAcc = o.def.acc * (1 + u.acc*0.09);
+    this.maxHp = S.ЗДОРОВЬЕ * o.def.hp * (1 + u.hp*0.12);
+    this.hp = this.maxHp;
+    this.turbo = S.ТУРБО_ЗАПАС * (1 + u.turbo*0.15);
+    this.maxTurbo = this.turbo;
+    this.score=0; this.dead=0; this.r=21; this.w=26; this.l=44;
+    this.wob=0; this.boosting=false;
+  }
+  drive(inp){
+    if(this.dead>0) return;
+    const maxS = S.МАКС_СКОРОСТЬ * this.mSpd * (inp.turbo && this.turbo>0 ? S.ТУРБО_СИЛА : 1);
+    this.boosting = inp.turbo && this.turbo>0 && this.sp>0.4;
+    if (inp.turbo && this.turbo>0) this.turbo -= S.ТУРБО_РАСХОД;
+    else this.turbo = Math.min(this.maxTurbo, this.turbo + S.ТУРБО_ВОССТАН);
+
+    if (S.ПРОСТОЕ_УПРАВЛЕНИЕ || this.isBot){
+      // рулим в сторону нажатого направления, газ автоматически
+      if (inp.dir && (inp.dx||inp.dy)){
+        const want = Math.atan2(inp.dy, inp.dx);
+        const turnRate = S.ПОВОРОТ * (1.4 - Math.min(this.sp/maxS,1)*0.45) * (inp.brake?0.6:1);
+        this.a = angLerp(this.a, want, clamp(turnRate*2.4,0,1));
+        this.sp += S.РАЗГОН * this.mAcc * (inp.boost||1);
+      } else this.sp *= 0.96;
+      if (inp.brake) this.sp -= S.ТОРМОЗ;
+    } else {
+      // классика: газ / тормоз / руль
+      if (inp.up) this.sp += S.РАЗГОН * this.mAcc;
+      if (inp.down) this.sp -= S.ТОРМОЗ;
+      if (inp.turn) this.a += inp.turn * S.ПОВОРОТ * clamp(Math.abs(this.sp)/1.4,0,1.5) * Math.sign(this.sp||1);
+      if (!inp.up && !inp.down) this.sp *= 0.985;
+    }
+    this.sp = clamp(this.sp, -maxS*0.45, maxS);
+
+    // занос: скорость по вектору тянется к направлению корпуса
+    const tx = Math.cos(this.a)*this.sp, ty = Math.sin(this.a)*this.sp;
+    const grip = S.ЦЕПКОСТЬ;
+    this.vx = lerp(this.vx, tx, grip); this.vy = lerp(this.vy, ty, grip);
+    this.vx *= S.ТРЕНИЕ; this.vy *= S.ТРЕНИЕ;
+    this.x += this.vx; this.y += this.vy;
+
+    // визуальные эффекты движения
+    const slip = Math.hypot(this.vx-tx, this.vy-ty);
+    if (slip > 0.55 || this.boosting){
+      const bx = this.x - Math.cos(this.a)*16, by = this.y - Math.sin(this.a)*16;
+      addSkid(bx + Math.cos(this.a+1.57)*9, by + Math.sin(this.a+1.57)*9, 4.2, .05);
+      addSkid(bx - Math.cos(this.a+1.57)*9, by - Math.sin(this.a+1.57)*9, 4.2, .05);
+      if (Math.random()<.5) smoke(bx, by, this.boosting?'255,160,60':'190,190,200');
+    }
+    this.wob = lerp(this.wob, slip*0.05, 0.2);
+  }
+  damage(d, fx, fy){
+    if(this.dead>0) return;
+    this.hp -= d;
+    spark(fx,fy, Math.min(22, 5+d|0), '255,210,90', 1+d/22);
+    if (this.hp<=0){
+      this.hp=0; this.dead = S.РЕСПАВН_СЕК*60;
+      spark(this.x,this.y,34,'255,140,40',2.4);
+      for(let i=0;i<7;i++) smoke(this.x+rnd(-14,14), this.y+rnd(-14,14), '60,60,66');
+      shake(16); freeze(120); sfx('boom');
+    }
+  }
+  respawn(a){
+    this.hp=this.maxHp; this.dead=0; this.sp=0; this.vx=this.vy=0;
+    this.x=rnd(a.w*0.2,a.w*0.8); this.y=rnd(a.h*0.2,a.h*0.8);
+  }
+}
+
+/* ---------------- БОТЫ ---------------- */
+/* Один мозг, три характера. Меняй числа — меняется поведение соперников. */
+const BRAINS = [
+  { name:'ТАРАН',  aggr:1.00, aim:0.72, react:0.20, turboAt:210, keep:0 },
+  { name:'ХИТРЫЙ', aggr:0.78, aim:0.94, react:0.09, turboAt:150, keep:0.45 },
+  { name:'ТРУС',   aggr:0.42, aim:0.80, react:0.14, turboAt:120, keep:0.75 },
+];
+
+function botThink(bot, world){
+  const b = bot.brain;
+  bot._t = (bot._t||0) - 1;
+  if (bot._t <= 0){                     // «время реакции» — думает не каждый кадр
+    bot._t = Math.round(6 + (1-b.react)*22);
+    // цель — ближайшая живая машина
+    let best=null, bd=1e9;
+    for (const c of world.cars){
+      if (c===bot || c.dead>0) continue;
+      const d = dist(bot,c);
+      if (c.pi>=0) { if (d*0.75 < bd){ bd=d*0.75; best=c; } }   // игроков предпочитает
+      else if (d < bd){ bd=d; best=c; }
+    }
+    bot._target = best;
+
+    if (best){
+      // точка перехвата: куда цель приедет через N кадров
+      const lead = 14 * b.aim;
+      let tx = best.x + best.vx*lead, ty = best.y + best.vy*lead;
+      // трус на низком здоровье убегает
+      const scared = bot.hp < bot.maxHp*b.keep;
+      if (scared){ tx = bot.x*2 - best.x; ty = bot.y*2 - best.y; }
+      bot._aim = { x:tx, y:ty, scared };
+    }
+  }
+
+  const inp = { dir:false, dx:0, dy:0, up:1, down:0, turn:0, turbo:false, brake:false, boost:1 };
+  const aim = bot._aim;
+  if (!aim) return inp;
+
+  let dx = aim.x - bot.x, dy = aim.y - bot.y;
+  const d = Math.hypot(dx,dy) || 1; dx/=d; dy/=d;
+
+  // объезд препятствий: смотрим вперёд, если помеха — уводим руль
+  const fx = bot.x + Math.cos(bot.a)*70, fy = bot.y + Math.sin(bot.a)*70;
+  for (const o of world.arena.obs){
+    const od = Math.hypot(fx-o[0], fy-o[1]);
+    if (od < o[2]+30){
+      const ax = (fx-o[0])/(od||1), ay = (fy-o[1])/(od||1);
+      dx += ax*1.5; dy += ay*1.5;
+    }
+  }
+  // держимся подальше от стен
+  const m=110, A=world.arena;
+  if (bot.x<m) dx += (m-bot.x)/m*1.6;
+  if (bot.x>A.w-m) dx -= (bot.x-(A.w-m))/m*1.6;
+  if (bot.y<m) dy += (m-bot.y)/m*1.6;
+  if (bot.y>A.h-m) dy -= (bot.y-(A.h-m))/m*1.6;
+
+  const nl = Math.hypot(dx,dy)||1;
+  inp.dir=true; inp.dx=dx/nl; inp.dy=dy/nl;
+  inp.boost = 0.55 + b.aggr*0.6;
+  if (!aim.scared && d < b.turboAt && bot.turbo > 25) inp.turbo = true;
+  if (aim.scared && bot.turbo > 40) inp.turbo = true;
+  return inp;
+}
+
+/* ---------------- КАМЕРА / ТРЯСКА / СТОП-КАДР ---------------- */
+const cam = { x:0, y:0, z:1, tz:1, sh:0 };
+let freezeUntil = 0;
+function shake(v){ cam.sh = Math.min(26, cam.sh + v*S.ТРЯСКА); }
+function freeze(ms){ if(S.ЗАМОРОЗКА_УДАРА) freezeUntil = performance.now() + Math.min(ms, S.ЗАМОРОЗКА_УДАРА*1.8); }
+
+function updCam(){
+  const foc = game.cars.filter(c=>c.pi>=0 && c.dead<=0);
+  const list = foc.length ? foc : game.cars.filter(c=>c.pi>=0);
+  if(!list.length) return;
+  let cx=0, cy=0, minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9;
+  for(const c of list){ cx+=c.x; cy+=c.y;
+    minx=Math.min(minx,c.x); maxx=Math.max(maxx,c.x);
+    miny=Math.min(miny,c.y); maxy=Math.max(maxy,c.y); }
+  cx/=list.length; cy/=list.length;
+  const spread = Math.max(maxx-minx, (maxy-miny)*1.4) + 620;
+  cam.tz = clamp(Math.min(W,H*1.3)/spread, S.ЗУМ_МИН, S.ЗУМ_МАКС);
+  cam.z = lerp(cam.z, cam.tz, 0.06);
+  cam.x = lerp(cam.x, cx, S.КАМЕРА_ПЛАВНОСТЬ);
+  cam.y = lerp(cam.y, cy, S.КАМЕРА_ПЛАВНОСТЬ);
+  // не выпускаем камеру за пределы арены
+  const A=game.arena, hw=W/2/cam.z, hh=H/2/cam.z;
+  if (A.w > hw*2) cam.x = clamp(cam.x, hw, A.w-hw); else cam.x = A.w/2;
+  if (A.h > hh*2) cam.y = clamp(cam.y, hh, A.h-hh); else cam.y = A.h/2;
+  cam.sh *= 0.88;
+}
+
+/* ---------------- ЗВУК (генерируется кодом, файлов нет) ---------------- */
+let AC=null, engGain=null, engOsc=null;
+function audio(){
+  if (AC) return;
+  try {
+    AC = new (window.AudioContext||window.webkitAudioContext)();
+    engOsc = AC.createOscillator(); engGain = AC.createGain();
+    engOsc.type='sawtooth'; engOsc.frequency.value=60;
+    engGain.gain.value=0; engOsc.connect(engGain); engGain.connect(AC.destination); engOsc.start();
+  } catch(e){}
+}
+function engine(sp){
+  if(!AC||!engGain) return;
+  engOsc.frequency.value = 48 + sp*34;
+  engGain.gain.value = game.state==='play' ? 0.014 + Math.min(sp,6)*0.006 : 0;
+}
+function sfx(kind){
+  if(!AC) return;
+  const t=AC.currentTime;
+  if (kind==='hit'||kind==='boom'){
+    const len = kind==='boom'?0.45:0.14;
+    const buf = AC.createBuffer(1, AC.sampleRate*len, AC.sampleRate);
+    const d = buf.getChannelData(0);
+    for(let i=0;i<d.length;i++) d[i] = (Math.random()*2-1) * Math.pow(1-i/d.length, kind==='boom'?2:3);
+    const src=AC.createBufferSource(); src.buffer=buf;
+    const f=AC.createBiquadFilter(); f.type='lowpass'; f.frequency.value = kind==='boom'?700:1900;
+    const g=AC.createGain(); g.gain.value = kind==='boom'?0.5:0.25;
+    src.connect(f); f.connect(g); g.connect(AC.destination); src.start();
+  } else if (kind==='coin'){
+    const o=AC.createOscillator(), g=AC.createGain();
+    o.type='square'; o.frequency.setValueAtTime(880,t); o.frequency.setValueAtTime(1320,t+0.06);
+    g.gain.setValueAtTime(0.1,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.22);
+    o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t+0.24);
+  }
+}
+
+/* ---------------- ФИЗИКА СТОЛКНОВЕНИЙ ---------------- */
+function collide(world){
+  const cars = world.cars, A = world.arena;
+  for (let i=0;i<cars.length;i++){
+    const a = cars[i]; if (a.dead>0) continue;
+
+    // стены
+    if (a.x < a.r){ a.x=a.r; a.vx=Math.abs(a.vx)*0.4; a.sp*=0.6; wallFx(a); }
+    if (a.x > A.w-a.r){ a.x=A.w-a.r; a.vx=-Math.abs(a.vx)*0.4; a.sp*=0.6; wallFx(a); }
+    if (a.y < a.r){ a.y=a.r; a.vy=Math.abs(a.vy)*0.4; a.sp*=0.6; wallFx(a); }
+    if (a.y > A.h-a.r){ a.y=A.h-a.r; a.vy=-Math.abs(a.vy)*0.4; a.sp*=0.6; wallFx(a); }
+
+    // препятствия
+    for (const o of A.obs){
+      const dx=a.x-o[0], dy=a.y-o[1], d=Math.hypot(dx,dy), min=a.r+o[2];
+      if (d < min && d>0){
+        const nx=dx/d, ny=dy/d, pen=min-d;
+        a.x+=nx*pen; a.y+=ny*pen;
+        const vn = a.vx*nx + a.vy*ny;
+        if (vn<0){ a.vx-=vn*nx*1.5; a.vy-=vn*ny*1.5;
+          const f=Math.abs(vn);
+          if (f>S.УРОН_ПОРОГ){ a.damage(f*S.УРОН_СИЛА*0.35, a.x-nx*a.r, a.y-ny*a.r);
+            shake(f*1.2); sfx('hit'); }
+          a.sp *= 0.55; }
+      }
+    }
+
+    // машина об машину
+    for (let j=i+1;j<cars.length;j++){
+      const b = cars[j]; if (b.dead>0) continue;
+      const dx=b.x-a.x, dy=b.y-a.y, d=Math.hypot(dx,dy), min=a.r+b.r;
+      if (d < min && d > 0){
+        const nx=dx/d, ny=dy/d, pen=(min-d)/2;
+        a.x-=nx*pen; a.y-=ny*pen; b.x+=nx*pen; b.y+=ny*pen;
+
+        const rvx=b.vx-a.vx, rvy=b.vy-a.vy;
+        const closing = -(rvx*nx + rvy*ny);          // скорость сближения
+        if (closing > 0){
+          const imp = closing * S.ОТСКОК * 0.5;
+          a.vx -= nx*imp; a.vy -= ny*imp; b.vx += nx*imp; b.vy += ny*imp;
+          a.sp *= 0.65; b.sp *= 0.65;
+
+          if (closing > S.УРОН_ПОРОГ){
+            const power = closing - S.УРОН_ПОРОГ;
+            // кто врезался носом — тот бьёт сильнее
+            const aFace = Math.cos(a.a)*nx + Math.sin(a.a)*ny;      //  1 = а едет носом в b
+            const bFace = -(Math.cos(b.a)*nx + Math.sin(b.a)*ny);
+            const aDmg = power * S.УРОН_СИЛА * clamp(0.35 + bFace*0.9, 0.2, 1.5);
+            const bDmg = power * S.УРОН_СИЛА * clamp(0.35 + aFace*0.9, 0.2, 1.5);
+            const hx=(a.x+b.x)/2, hy=(a.y+b.y)/2;
+
+            const bHpBefore=b.hp, aHpBefore=a.hp;
+            b.damage(bDmg, hx, hy); a.damage(aDmg, hx, hy);
+            a.score += Math.round(Math.min(bDmg,bHpBefore) * S.ОЧКИ_ЗА_УРОН/10);
+            b.score += Math.round(Math.min(aDmg,aHpBefore) * S.ОЧКИ_ЗА_УРОН/10);
+
+            shake(power*2.6); freeze(power*45); sfx('hit');
+            spark(hx,hy, 10+Math.min(20,power*8|0), '255,235,140', 1+power);
+          }
+        }
+      }
+    }
+  }
+}
+function wallFx(a){
+  const f = Math.hypot(a.vx,a.vy);
+  if (f > S.УРОН_ПОРОГ*1.4){ a.damage(f*S.УРОН_СИЛА*0.2, a.x, a.y); shake(f); sfx('hit'); }
+}
+
+/* ---------------- ОТРИСОВКА ---------------- */
+function drawArena(A){
+  ctx.fillStyle = A.floor; ctx.fillRect(0,0,A.w,A.h);
+  // сетка плит
+  ctx.strokeStyle = A.line; ctx.lineWidth = 2;
+  ctx.beginPath();
+  for(let x=0;x<=A.w;x+=150){ ctx.moveTo(x,0); ctx.lineTo(x,A.h); }
+  for(let y=0;y<=A.h;y+=150){ ctx.moveTo(0,y); ctx.lineTo(A.w,y); }
+  ctx.stroke();
+  if (skid) ctx.drawImage(skid,0,0);
+  // стены
+  ctx.strokeStyle='#ffd23f'; ctx.lineWidth=8; ctx.globalAlpha=.85;
+  ctx.strokeRect(4,4,A.w-8,A.h-8);
+  ctx.globalAlpha=.18; ctx.lineWidth=22; ctx.strokeRect(4,4,A.w-8,A.h-8);
+  ctx.globalAlpha=1;
+  // препятствия
+  for(const o of A.obs) drawObs(o);
+}
+function drawObs(o){
+  const [x,y,r,t]=o;
+  ctx.save(); ctx.translate(x,y);
+  ctx.fillStyle='rgba(0,0,0,.45)'; ctx.beginPath(); ctx.ellipse(4,7,r*.98,r*.72,0,0,6.283); ctx.fill();
+  if (t==='tire'){
+    ctx.fillStyle='#22242c'; ctx.beginPath(); ctx.arc(0,0,r,0,6.283); ctx.fill();
+    ctx.fillStyle='#15171d'; ctx.beginPath(); ctx.arc(0,0,r*.55,0,6.283); ctx.fill();
+    ctx.strokeStyle='#33363f'; ctx.lineWidth=3;
+    for(let i=0;i<8;i++){ const a=i/8*6.283; ctx.beginPath();
+      ctx.moveTo(Math.cos(a)*r*.6,Math.sin(a)*r*.6); ctx.lineTo(Math.cos(a)*r*.95,Math.sin(a)*r*.95); ctx.stroke(); }
+  } else if (t==='crate'){
+    ctx.fillStyle='#6b4a24'; ctx.fillRect(-r,-r,r*2,r*2);
+    ctx.fillStyle='#8a6132'; ctx.fillRect(-r+5,-r+5,r*2-10,r*2-10);
+    ctx.strokeStyle='#4a3115'; ctx.lineWidth=4;
+    ctx.beginPath(); ctx.moveTo(-r,-r); ctx.lineTo(r,r); ctx.moveTo(r,-r); ctx.lineTo(-r,r); ctx.stroke();
+  } else {
+    // форма камня считается один раз и запоминается, иначе он дрожал бы каждый кадр
+    if (!o.shape){ o.shape=[]; for(let i=0;i<7;i++) o.shape.push(rnd(.86,1.02)); }
+    ctx.fillStyle='#4d4237'; ctx.beginPath();
+    for(let i=0;i<7;i++){ const a=i/7*6.283, rr=r*o.shape[i];
+      i?ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr):ctx.moveTo(Math.cos(a)*rr,Math.sin(a)*rr); }
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#5e5244'; ctx.beginPath(); ctx.arc(-r*.2,-r*.25,r*.42,0,6.283); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawCar(c){
+  const dead = c.dead>0;
+  ctx.save();
+  ctx.translate(c.x, c.y);
+  // тень — даёт объём
+  ctx.fillStyle='rgba(0,0,0,.5)';
+  ctx.beginPath(); ctx.ellipse(3,6, c.l*.5, c.w*.55, c.a, 0, 6.283); ctx.fill();
+  ctx.rotate(c.a + c.wob);
+  if (dead){ ctx.globalAlpha = 0.25 + 0.25*Math.sin(performance.now()/90); }
+
+  const L=c.l, Wd=c.w, col=c.color;
+  // свечение турбо сзади
+  if (c.boosting){
+    const g=ctx.createRadialGradient(-L*.62,0,2,-L*.62,0,32);
+    g.addColorStop(0,'rgba(255,190,80,.9)'); g.addColorStop(1,'rgba(255,120,20,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(-L*.62,0,32,0,6.283); ctx.fill();
+  }
+  // корпус
+  ctx.fillStyle = col;
+  rr(-L/2, -Wd/2, L, Wd, 7); ctx.fill();
+  // светлый верх капота
+  ctx.fillStyle = 'rgba(255,255,255,.13)';
+  rr(-L/2+3, -Wd/2+3, L-6, Wd/2-2, 5); ctx.fill();
+  // кабина
+  ctx.fillStyle = 'rgba(12,16,26,.92)';
+  rr(-L*.12, -Wd/2+4, L*.34, Wd-8, 4); ctx.fill();
+  // полоса вдоль корпуса
+  ctx.fillStyle='rgba(255,255,255,.22)'; ctx.fillRect(-L/2+4, -2, L-8, 4);
+  // колёса
+  ctx.fillStyle='#0d0f14';
+  for (const s of [-1,1]) for (const f of [-1,1])
+    ctx.fillRect(f*L*0.28 - 6, s*(Wd/2) - 3, 12, 6);
+  // фары
+  if(!dead){
+    const g2=ctx.createRadialGradient(L*.5,0,1,L*.5,0,46);
+    g2.addColorStop(0,'rgba(190,225,255,.42)'); g2.addColorStop(1,'rgba(150,200,255,0)');
+    ctx.fillStyle=g2; ctx.beginPath(); ctx.moveTo(L*.45,-Wd*.4);
+    ctx.lineTo(L*.45+62,-Wd*1.5); ctx.lineTo(L*.45+62,Wd*1.5); ctx.lineTo(L*.45,Wd*.4); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#dff0ff';
+    ctx.fillRect(L*.44,-Wd*.42,4,6); ctx.fillRect(L*.44,Wd*.42-6,4,6);
+  }
+  ctx.restore();
+
+  // маркер игрока над машиной
+  if (c.pi>=0 && !dead){
+    ctx.save(); ctx.translate(c.x, c.y - 36);
+    const pc = c.pi===0 ? '#5fd0ff' : '#ff8a5c';
+    ctx.fillStyle=pc; ctx.beginPath();
+    ctx.moveTo(0,10); ctx.lineTo(-8,-2); ctx.lineTo(8,-2); ctx.closePath(); ctx.fill();
+    ctx.globalAlpha=.35; ctx.beginPath(); ctx.arc(0,4,13,0,6.283); ctx.fill();
+    ctx.restore();
+  }
+  // полоска здоровья у ботов
+  if (c.pi<0 && !dead){
+    const p = c.hp/c.maxHp;
+    ctx.fillStyle='rgba(0,0,0,.55)'; ctx.fillRect(c.x-19, c.y-33, 38, 5);
+    ctx.fillStyle = p>.5?'#49d16b':p>.25?'#ffc93c':'#e8433a';
+    ctx.fillRect(c.x-18, c.y-32, 36*p, 3);
+  }
+}
+function rr(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+}
+
+function drawParts(){
+  for(const p of parts){
+    ctx.globalAlpha = clamp(p.life,0,1) * (p.g?0.42:1);
+    ctx.fillStyle = 'rgba('+p.col+',1)';
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r*(p.g?1:p.life),0,6.283); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+
+function drawVignette(){
+  const g = ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.34, W/2,H/2,Math.max(W,H)*0.78);
+  g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,.62)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+}
+function drawTouchUI(){
+  if (!('ontouchstart' in window)) return;
+  ctx.save(); ctx.globalAlpha=.16;
+  const sides = game.players===2 ? [0,1] : [0];
+  for (const s of sides){
+    const bx = s===0 ? W*0.09 : W*0.91;
+    ctx.strokeStyle='#fff'; ctx.lineWidth=3;
+    ctx.beginPath(); ctx.arc(bx, H*0.72, 52, 0, 6.283); ctx.stroke();
+    ctx.fillStyle='#ffd23f'; ctx.beginPath(); ctx.arc(bx, H*0.88, 32, 0, 6.283); ctx.fill();
+    ctx.globalAlpha=.5; ctx.fillStyle='#000'; ctx.font='bold 13px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('ТУРБО', bx, H*0.88+5); ctx.globalAlpha=.16;
+  }
+  ctx.restore();
+}
+
+/* ---------------- ИГРА ---------------- */
+const game = {
+  state:'menu', mode:'crash', players:1, arenaIdx:0,
+  arena:null, cars:[], time:0, frame:0
+};
+
+function startMatch(){
+  const A = ARENAS[game.arenaIdx];
+  game.arena = A; game.cars = []; parts.length=0; initSkid(A);
+  const def = CARS.find(c=>c.id===save.car) || CARS[0];
+
+  for (let i=0;i<game.players;i++){
+    const c = new Car({ x:A.w*0.5 + (i?70:-70), y:A.h*0.72, a:-1.57,
+      def, up:save.up, pi:i, color: save.color || def.color, name:'P'+(i+1) });
+    game.cars.push(c);
+  }
+  for (let i=0;i<S.БОТОВ_В_БОЮ;i++){
+    const bd = CARS[Math.min(CARS.length-1, 1 + (i % 3))];
+    const brain = BRAINS[i % BRAINS.length];
+    const ang = (i/S.БОТОВ_В_БОЮ)*6.283;
+    game.cars.push(new Car({ x:A.w/2 + Math.cos(ang)*A.w*0.3, y:A.h/2 + Math.sin(ang)*A.h*0.28,
+      a:ang+3.14, def:bd, bot:true, brain, name:brain.name }));
+  }
+  cam.x = A.w/2; cam.y = A.h/2; cam.z = 0.8;
+  game.time = S.ВРЕМЯ_БОЯ * 60; game.frame = 0;
+  game.state = 'play';
+  UI.show(null); document.getElementById('hud').classList.add('on');
+  document.getElementById('pP2').style.display = game.players===2 ? '' : 'none';
+  document.getElementById('hint').textContent =
+    ('ontouchstart' in window) ? 'Веди пальцем — машина едет за пальцем'
+    : (game.players===2 ? 'P1: WASD + Shift  ·  P2: стрелки + правый Shift'
+                        : 'WASD или стрелки  ·  Пробел — турбо');
+  audio();
+}
+
+function tick(){
+  game.frame++;
+  const world = game;
+  for (const c of world.cars){
+    if (c.dead>0){ c.dead--; if (c.dead<=0) c.respawn(world.arena); continue; }
+    const inp = c.pi>=0 ? (()=>{ const i=readInput(c.pi);
+        return { dir:i.dir, dx:i.dx, dy:i.dy, up:i.up, down:i.down, turn:i.turn,
+                 turbo:i.turbo, brake:!!i.down, boost:1 }; })()
+      : botThink(c, world);
+    c.drive(inp);
+  }
+  collide(world);
+  updParts();
+  updCam();
+
+  const p1 = world.cars.find(c=>c.pi===0);
+  engine(p1 ? Math.abs(p1.sp)*(p1.boosting?1.6:1) : 0);
+
+  game.time--;
+  if (game.time <= 0) finish();
+}
+
+function finish(){
+  game.state='result';
+  document.getElementById('hud').classList.remove('on');
+  const humans = game.cars.filter(c=>c.pi>=0);
+  const all = [...game.cars].sort((a,b)=>b.score-a.score);
+  const winner = all[0];
+  let earned = 0;
+  for (const h of humans) earned += Math.round(h.score * S.МОНЕТ_ЗА_100_ОЧКОВ/100);
+  earned += S.МОНЕТ_УТЕШИТЕЛЬНЫХ;
+  if (winner && winner.pi>=0) earned += S.МОНЕТ_ЗА_ПОБЕДУ;
+  save.coins += earned;
+  const bestNow = Math.max(...humans.map(h=>h.score));
+  if (bestNow > save.best) save.best = bestNow;
+  persist(); sfx('coin');
+
+  let html='';
+  for (const h of humans) html += `<div class="line"><span>${h.name} — очки</span><b>${h.score}</b></div>`;
+  html += `<div class="line"><span>Победитель</span><b>${winner? (winner.pi>=0?winner.name:'БОТ '+winner.name) : '—'}</b></div>`;
+  html += `<div class="line"><span>Получено монет</span><b>🪙 ${earned}</b></div>`;
+  html += `<div class="line"><span>Всего монет</span><b>🪙 ${save.coins}</b></div>`;
+  html += `<div class="line"><span>Рекорд</span><b>${save.best}</b></div>`;
+  document.getElementById('resBody').innerHTML = html;
+  UI.show('scResult');
+}
+
+function render(){
+  ctx.fillStyle='#0b0d12'; ctx.fillRect(0,0,W,H);
+  if (game.arena){
+    ctx.save();
+    const sx = cam.sh ? rnd(-cam.sh,cam.sh) : 0, sy = cam.sh ? rnd(-cam.sh,cam.sh) : 0;
+    ctx.translate(W/2+sx, H/2+sy); ctx.scale(cam.z,cam.z); ctx.translate(-cam.x,-cam.y);
+    drawArena(game.arena);
+    for (const c of game.cars) drawCar(c);
+    drawParts();
+    ctx.restore();
+  }
+  drawVignette();
+  if (game.state==='play') drawTouchUI();
+}
+
+function hud(){
+  if (game.state!=='play') return;
+  const t = Math.max(0, Math.ceil(game.time/60));
+  document.getElementById('pTime').textContent = Math.floor(t/60)+':'+String(t%60).padStart(2,'0');
+  for (let i=0;i<2;i++){
+    const el = document.getElementById(i===0?'pP1':'pP2');
+    const c = game.cars.find(x=>x.pi===i);
+    if (!c || !el) continue;
+    el.querySelector('span').textContent = c.score;
+    const bar = el.querySelector('.hpbar i'), p = c.hp/c.maxHp;
+    bar.style.width = (p*100)+'%';
+    bar.style.background = p>.5?'#49d16b':p>.25?'#ffc93c':'#e8433a';
+  }
+}
+
+function loop(now){
+  requestAnimationFrame(loop);
+  if (now < freezeUntil){ render(); return; }        // стоп-кадр при ударе
+  if (game.state==='play') { tick(); hud(); }
+  render();
+}
+requestAnimationFrame(loop);
+
+/* ---------------- ЭКРАНЫ / МЕНЮ ---------------- */
+const UI = {
+  show(id){
+    for (const s of document.querySelectorAll('.screen')) s.classList.remove('on');
+    if (id) document.getElementById(id).classList.add('on');
+    if (id==='scMenu'){
+      document.getElementById('coinLine').textContent = '🪙 Джон.А: ' + save.coins;
+      document.getElementById('recLine').textContent = save.best ? 'Рекорд: ' + save.best : '';
+      game.state='menu'; document.getElementById('hud').classList.remove('on');
+    }
+  },
+  play(){ audio(); this.buildSetup(); this.show('scSetup'); },
+  buildSetup(){
+    const mr = document.getElementById('modeRow'); mr.innerHTML='';
+    for (const m of MODES){
+      const b=document.createElement('button');
+      b.className='btn sm'+(game.mode===m.id?' g':'');
+      b.textContent = m.name + (m.ready?'':' 🔒');
+      b.onclick=()=>{ if(!m.ready){ alert('Этот режим ещё делаем!'); return; }
+                      game.mode=m.id; this.buildSetup(); };
+      mr.appendChild(b);
+    }
+    const ar = document.getElementById('arenaRow'); ar.innerHTML='';
+    ARENAS.forEach((a,i)=>{
+      const b=document.createElement('button');
+      b.className='btn sm'+(game.arenaIdx===i?' y':'');
+      b.textContent=a.name;
+      b.onclick=()=>{ game.arenaIdx=i; this.buildSetup(); };
+      ar.appendChild(b);
+    });
+  },
+  setPlayers(n){ game.players=n; this.buildSetup(); },
+  start(){ startMatch(); },
+  garage(){ alert('Гараж делаем следующим шагом'); },
+  shop(){ alert('Магазин делаем следующим шагом'); },
+};
+UI.show('scMenu');
+
+/* полноэкранный режим по первому касанию на телефоне */
+addEventListener('touchend', function once(){
+  const el=document.documentElement;
+  if (el.requestFullscreen) el.requestFullscreen().catch(()=>{});
+  if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(()=>{});
+  removeEventListener('touchend', once);
+});
+</script>
