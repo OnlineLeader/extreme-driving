@@ -255,10 +255,15 @@ cv.addEventListener('touchend',e=>{ for(const t of e.changedTouches) tEnd(t.iden
 cv.addEventListener('touchcancel',e=>{ for(const t of e.changedTouches) tEnd(t.identifier); });
 
 function readInput(i){
-  const k = KEYMAP[i], o = { up:0, down:0, turn:0, turbo:false, dx:0, dy:0, dir:false };
-  if (keys[k.up]) o.up=1; if (keys[k.down]) o.down=1;
-  if (keys[k.left]) o.turn-=1; if (keys[k.right]) o.turn+=1;
-  if (keys[k.turbo] || (i===0 && keys.Space)) o.turbo=true;
+  const o = { up:0, down:0, turn:0, turbo:false, dx:0, dy:0, dir:false };
+  // когда играет один — слушаем и WASD, и стрелки сразу
+  const maps = (game.players===1 && i===0) ? KEYMAP : [KEYMAP[i]];
+  for (const k of maps){
+    if (keys[k.up]) o.up=1; if (keys[k.down]) o.down=1;
+    if (keys[k.left]) o.turn-=1; if (keys[k.right]) o.turn+=1;
+    if (keys[k.turbo]) o.turbo=true;
+  }
+  if (i===0 && keys.Space) o.turbo=true;
   if (o.up||o.down||o.turn){ o.dir=true; o.dx = o.turn; o.dy = (o.down?1:0)-(o.up?1:0); }
   const t = touch[i];
   if (t.act){ o.dir=true; o.dx=t.dx; o.dy=t.dy; o.up=1; }
