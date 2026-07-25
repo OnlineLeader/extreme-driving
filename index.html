@@ -190,7 +190,10 @@ const S = {
   // --- КАМЕРА ---
   ЗУМ_МИН:            0.62,
   ЗУМ_МАКС:           1.25,
-  КАМЕРА_ПЛАВНОСТЬ:   0.09,
+  КАМЕРА_ПЛАВНОСТЬ:   0.14,  // больше = резвее следует за машиной
+  КАМЕРА_ВПЕРЁД:      26,    // насколько заглядывает вперёд по ходу движения
+  ЗУМ_ОТ_СКОРОСТИ:    0.13,  // насколько отъезжает на большой скорости
+  ТОЛЧОК_КАМЕРЫ:      0.07,  // рывок зума при сильном ударе
 };
 
 /* --- МАШИНЫ: имя, цена, цвет, скорость/разгон/прочность (множители) --- */
@@ -203,18 +206,29 @@ const CARS = [
   { id:'blaze',    name:'BLAZE',     price:4000, color:'#ff7a1a', spd:1.34, acc:1.30, hp:1.05 },
 ];
 
-/* --- АРЕНЫ: размер поля + препятствия (x, y, радиус, тип) --- */
+/* --- АРЕНЫ: размер поля, цвета и препятствия (x, y, радиус, тип) ---
+   Типы препятствий: tire (шина), crate (ящик), rock (камень), cone (конус), barrel (бочка)
+   Цвета: floor — покрытие, out — что вокруг арены, line — разметка, accent — цвет ограждения */
 const ARENAS = [
-  { id:'dump', name:'ГОРОДСКАЯ СВАЛКА', w:1500, h:1050, floor:'#191c24', line:'#242a38',
+  { id:'dump', name:'ГОРОДСКАЯ СВАЛКА', w:1500, h:1050,
+    floor:'#39405a', out:'#191d2b', line:'#5a6486', accent:'#35e0ff', theme:'city',
     obs:[[420,300,46,'tire'],[1080,300,46,'tire'],[420,750,46,'tire'],[1080,750,46,'tire'],
-         [750,525,74,'crate'],[750,180,40,'crate'],[750,870,40,'crate'],
-         [200,525,38,'tire'],[1300,525,38,'tire']] },
-  { id:'canyon', name:'ПУСТЫННЫЙ КАНЬОН', w:1700, h:1000, floor:'#241d18', line:'#33291f',
+         [750,525,74,'crate','#c94f3d'],[750,180,40,'crate','#3d84f7'],[750,870,40,'crate','#49d16b'],
+         [200,525,38,'barrel'],[1300,525,38,'barrel'],
+         [560,525,20,'cone'],[940,525,20,'cone'],
+         [270,180,34,'crate','#ffc93c'],[1230,180,34,'crate','#8b5cf6'],
+         [270,870,34,'crate','#ff7a1a'],[1230,870,34,'crate','#35e0ff'],
+         [520,430,20,'cone'],[980,430,20,'cone'],[520,620,20,'cone'],[980,620,20,'cone']] },
+  { id:'canyon', name:'ПУСТЫННЫЙ КАНЬОН', w:1700, h:1000,
+    floor:'#8a5f3c', out:'#5c3d26', line:'#a5744a', accent:'#ff8c3a', theme:'desert',
     obs:[[560,500,86,'rock'],[1140,500,86,'rock'],[850,220,52,'rock'],[850,780,52,'rock'],
-         [300,250,44,'rock'],[1400,750,44,'rock']] },
-  { id:'stadium', name:'СТАДИОН', w:1350, h:1350, floor:'#16211a', line:'#20301f',
+         [300,250,44,'rock'],[1400,750,44,'rock'],
+         [850,500,26,'barrel'],[430,720,20,'cone'],[1270,280,20,'cone']] },
+  { id:'stadium', name:'СТАДИОН', w:1350, h:1350,
+    floor:'#2f7a3e', out:'#1a4726', line:'#48a055', accent:'#ffffff', theme:'stadium',
     obs:[[675,675,110,'crate'],[675,300,40,'tire'],[675,1050,40,'tire'],
-         [300,675,40,'tire'],[1050,675,40,'tire']] },
+         [300,675,40,'tire'],[1050,675,40,'tire'],
+         [460,460,20,'cone'],[890,460,20,'cone'],[460,890,20,'cone'],[890,890,20,'cone']] },
 ];
 
 /* --- РЕЖИМЫ --- */
@@ -520,30 +534,42 @@ function botThinkRace(bot, world){
 }
 
 /* ---------------- КАМЕРА / ТРЯСКА / СТОП-КАДР ---------------- */
-const cam = { x:0, y:0, z:1, tz:1, sh:0 };
+const cam = { x:0, y:0, z:1, tz:1, sh:0, punch:0 };
 let freezeUntil = 0;
-function shake(v){ cam.sh = Math.min(26, cam.sh + v*S.ТРЯСКА); }
+function shake(v){
+  cam.sh = Math.min(26, cam.sh + v*S.ТРЯСКА);
+  cam.punch = Math.min(0.22, cam.punch + v*S.ТОЛЧОК_КАМЕРЫ*0.05);
+}
 function freeze(ms){ if(S.ЗАМОРОЗКА_УДАРА) freezeUntil = performance.now() + Math.min(ms, S.ЗАМОРОЗКА_УДАРА*1.8); }
 
 function updCam(){
   const foc = game.cars.filter(c=>c.pi>=0 && c.dead<=0);
   const list = foc.length ? foc : game.cars.filter(c=>c.pi>=0);
   if(!list.length) return;
-  let cx=0, cy=0, minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9;
-  for(const c of list){ cx+=c.x; cy+=c.y;
+  let cx=0, cy=0, vx=0, vy=0, minx=1e9,maxx=-1e9,miny=1e9,maxy=-1e9;
+  for(const c of list){ cx+=c.x; cy+=c.y; vx+=c.vx; vy+=c.vy;
     minx=Math.min(minx,c.x); maxx=Math.max(maxx,c.x);
     miny=Math.min(miny,c.y); maxy=Math.max(maxy,c.y); }
-  cx/=list.length; cy/=list.length;
+  const n=list.length; cx/=n; cy/=n; vx/=n; vy/=n;
+
+  // камера смотрит вперёд по ходу движения — видно куда едешь, а не откуда
+  cx += vx * S.КАМЕРА_ВПЕРЁД;
+  cy += vy * S.КАМЕРА_ВПЕРЁД;
+
   const spread = Math.max(maxx-minx, (maxy-miny)*1.4) + 620;
-  cam.tz = clamp(Math.min(W,H*1.3)/spread, S.ЗУМ_МИН, S.ЗУМ_МАКС);
-  cam.z = lerp(cam.z, cam.tz, 0.06);
+  const speed = Math.hypot(vx,vy);
+  // на скорости отъезжаем (шире обзор), при ударе — короткий рывок ближе
+  const zoomOut = 1 + speed * S.ЗУМ_ОТ_СКОРОСТИ;
+  cam.tz = clamp(Math.min(W,H*1.3)/spread/zoomOut, S.ЗУМ_МИН, S.ЗУМ_МАКС) * (1 + cam.punch);
+  cam.z = lerp(cam.z, cam.tz, 0.1);
   cam.x = lerp(cam.x, cx, S.КАМЕРА_ПЛАВНОСТЬ);
   cam.y = lerp(cam.y, cy, S.КАМЕРА_ПЛАВНОСТЬ);
-  // не выпускаем камеру за пределы арены
-  const A=game.arena, hw=W/2/cam.z, hh=H/2/cam.z;
-  if (A.w > hw*2) cam.x = clamp(cam.x, hw, A.w-hw); else cam.x = A.w/2;
-  if (A.h > hh*2) cam.y = clamp(cam.y, hh, A.h-hh); else cam.y = A.h/2;
+  // не выпускаем камеру далеко за пределы арены (немного захвата декора — можно)
+  const A=game.arena, hw=W/2/cam.z, hh=H/2/cam.z, out=130;
+  if (A.w+out*2 > hw*2) cam.x = clamp(cam.x, hw-out, A.w-hw+out); else cam.x = A.w/2;
+  if (A.h+out*2 > hh*2) cam.y = clamp(cam.y, hh-out, A.h-hh+out); else cam.y = A.h/2;
   cam.sh *= 0.88;
+  cam.punch *= 0.82;
 }
 
 /* ---------------- ЗВУК (генерируется кодом, файлов нет) ---------------- */
@@ -682,24 +708,207 @@ function raceProgress(world){
 }
 
 /* ---------------- ОТРИСОВКА ---------------- */
+
+/* Декор арены генерируется один раз при старте — с фиксированным зерном,
+   поэтому картинка не дрожит и каждый раз одинаковая. */
+function seeded(seed){ let s=seed; return ()=> (s = s*16807 % 2147483647) / 2147483647; }
+
+function buildDeco(A){
+  const R = seeded(A.w * 7919 + A.h);
+  const d = { patches:[], props:[], marks:[] };
+
+  // пятна на покрытии — «жизнь» поля
+  for (let i=0;i<16;i++){
+    d.patches.push({ x:R()*A.w, y:R()*A.h, r:26+R()*54, a:0.05+R()*0.06 });
+  }
+
+  // разметка на полу: стрелки, масляные лужи, граффити-мазки
+  for (let i=0;i<7;i++){
+    d.marks.push({ t:'arrow', x:120+R()*(A.w-240), y:120+R()*(A.h-240), rot:R()*6.283, s:0.8+R()*0.6 });
+  }
+  for (let i=0;i<5;i++){
+    d.marks.push({ t:'oil', x:100+R()*(A.w-200), y:100+R()*(A.h-200), r:22+R()*30 });
+  }
+  if (A.theme==='city') for (let i=0;i<6;i++){
+    d.marks.push({ t:'paint', x:100+R()*(A.w-200), y:100+R()*(A.h-200), rot:R()*6.283,
+      w:70+R()*120, c:['#35e0ff','#ffc93c','#ff5a5a','#49d16b'][(R()*4)|0] });
+  }
+
+  // объекты снаружи арены — вразнобой, не по линейке
+  const put = (x,y,kind,rot)=>{
+    const p = {x, y, kind, rot:rot||0, s: kind==='stand' ? 1 : 0.75+R()*0.6};
+    if (kind==='stand') p.crowd = Array.from({length:16},()=>({ dx:(R()-.5)*80, dy:(R()-.5)*40,
+      c:['#ff5a5a','#ffd23f','#5fd0ff','#8b5cf6','#49d16b','#fff'][(R()*6)|0] }));
+    d.props.push(p);
+  };
+  const stadium = A.theme==='stadium';
+  const kinds = A.theme==='desert' ? ['cactus','rockS','cactus'] : ['tree','lamp','tree'];
+
+  if (stadium){
+    // трибуны — ровным кольцом за беговой дорожкой, без разнобоя
+    const ring = 245, step = 108, Q = Math.PI/2;
+    for (let x=step/2; x<A.w; x+=step){ put(x, -ring, 'stand', 0); put(x, A.h+ring, 'stand', 0); }
+    for (let y=step/2; y<A.h; y+=step){ put(-ring, y, 'stand', Q); put(A.w+ring, y, 'stand', Q); }
+  } else {
+    // деревья, фонари, кактусы — вразнобой, живее чем по линейке
+    const step = 140;
+    for (let x=step/2; x<A.w; x+=step){
+      for (const [sy, row] of [[-1,0],[-1,1],[1,0],[1,1]]){
+        if (row===1 && R()<0.45) continue;               // второй ряд — не сплошной
+        const off = 62 + row*115 + R()*34;
+        put(x + (R()-.5)*70, sy<0 ? -off : A.h+off, kinds[(R()*kinds.length)|0]);
+      }
+    }
+    for (let y=step/2; y<A.h; y+=step){
+      for (const [sx, row] of [[-1,0],[-1,1],[1,0],[1,1]]){
+        if (row===1 && R()<0.45) continue;
+        const off = 62 + row*115 + R()*34;
+        put(sx<0 ? -off : A.w+off, y + (R()-.5)*70, kinds[(R()*kinds.length)|0]);
+      }
+    }
+  }
+  return d;
+}
+
+/* Разметка и потёртости прямо на покрытии арены */
+function drawMarks(D, A){
+  for (const m of D.marks){
+    ctx.save(); ctx.translate(m.x, m.y);
+    if (m.t==='arrow'){
+      ctx.rotate(m.rot); ctx.scale(m.s,m.s);
+      ctx.fillStyle='rgba(255,255,255,.13)';
+      ctx.beginPath(); ctx.moveTo(30,0); ctx.lineTo(-6,-20); ctx.lineTo(-6,-8);
+      ctx.lineTo(-30,-8); ctx.lineTo(-30,8); ctx.lineTo(-6,8); ctx.lineTo(-6,20);
+      ctx.closePath(); ctx.fill();
+    } else if (m.t==='oil'){
+      ctx.fillStyle='rgba(0,0,0,.3)';
+      ctx.beginPath(); ctx.ellipse(0,0,m.r,m.r*0.7,0,0,6.283); ctx.fill();
+      ctx.fillStyle='rgba(60,80,120,.18)';
+      ctx.beginPath(); ctx.ellipse(-m.r*.2,-m.r*.15,m.r*.45,m.r*.3,0,0,6.283); ctx.fill();
+    } else if (m.t==='paint'){
+      ctx.rotate(m.rot); ctx.globalAlpha=.16; ctx.fillStyle=m.c;
+      ctx.fillRect(-m.w/2,-9,m.w,18);
+      ctx.fillRect(-m.w/2+m.w*.2,-22,m.w*.35,12);
+    }
+    ctx.restore();
+  }
+  ctx.globalAlpha=1;
+}
+
 function drawArena(A){
+  const D = game.deco;
+
+  // ---- за пределами арены: земля, а не пустота ----
+  const pad = 460;
+  ctx.fillStyle = A.out;
+  ctx.fillRect(-pad, -pad, A.w+pad*2, A.h+pad*2);
+  if (A.theme==='stadium'){                    // беговая дорожка вокруг поля
+    ctx.strokeStyle='#a8503a'; ctx.lineWidth=120;
+    ctx.strokeRect(-96,-96,A.w+192,A.h+192);
+    ctx.strokeStyle='rgba(255,255,255,.25)'; ctx.lineWidth=3;
+    ctx.strokeRect(-40,-40,A.w+80,A.h+80);
+    ctx.strokeRect(-152,-152,A.w+304,A.h+304);
+  }
+
+  // ---- покрытие арены ----
   ctx.fillStyle = A.floor; ctx.fillRect(0,0,A.w,A.h);
-  // сетка плит
-  ctx.strokeStyle = A.line; ctx.lineWidth = 2;
+  if (A.theme==='stadium'){                    // газон в полоску
+    ctx.fillStyle='rgba(255,255,255,.05)';
+    for (let x=0; x<A.w; x+=96) ctx.fillRect(x,0,48,A.h);
+  }
+  // пятна и потёртости
+  if (D) for (const p of D.patches){
+    ctx.fillStyle = A.theme==='desert' ? `rgba(255,220,170,${p.a})`
+                  : A.theme==='stadium' ? `rgba(20,60,30,${p.a})`
+                  : `rgba(0,0,0,${p.a})`;
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,6.283); ctx.fill();
+  }
+  // разметка
+  ctx.strokeStyle = A.line; ctx.globalAlpha=.45; ctx.lineWidth = 2;
   ctx.beginPath();
   for(let x=0;x<=A.w;x+=150){ ctx.moveTo(x,0); ctx.lineTo(x,A.h); }
   for(let y=0;y<=A.h;y+=150){ ctx.moveTo(0,y); ctx.lineTo(A.w,y); }
-  ctx.stroke();
-  if (skid) ctx.drawImage(skid,0,0);
-  // стены
-  ctx.strokeStyle='#ffd23f'; ctx.lineWidth=8; ctx.globalAlpha=.85;
-  ctx.strokeRect(4,4,A.w-8,A.h-8);
-  ctx.globalAlpha=.18; ctx.lineWidth=22; ctx.strokeRect(4,4,A.w-8,A.h-8);
+  ctx.stroke(); ctx.globalAlpha=1;
+  if (D) drawMarks(D, A);
+  // круг в центре — как на стадионе
+  ctx.strokeStyle=A.line; ctx.globalAlpha=.55; ctx.lineWidth=5;
+  ctx.beginPath(); ctx.arc(A.w/2, A.h/2, Math.min(A.w,A.h)*0.22, 0, 6.283); ctx.stroke();
   ctx.globalAlpha=1;
+
+  if (skid) ctx.drawImage(skid,0,0);
+
+  // ---- ограждение: красно-белый отбойник по периметру ----
+  drawBarrier(A);
+
+  // ---- декор снаружи ----
+  if (D) for (const p of D.props) drawProp(p, A);
+
   // препятствия
   for(const o of A.obs) drawObs(o);
   // трасса — только в ГОНКЕ и ИСПЫТАНИЯХ
   if (game.modeType !== 'combat' && game.circuit) drawTrack(game.circuit);
+}
+
+function drawBarrier(A){
+  const t = 16;                                  // толщина отбойника
+  const seg = 46;                                // длина одной полосы
+  const paint = (x,y,w,h,horiz)=>{
+    const n = Math.ceil((horiz?w:h)/seg);
+    for (let i=0;i<n;i++){
+      ctx.fillStyle = i%2 ? '#e8433a' : '#f2f4f8';
+      if (horiz) ctx.fillRect(x+i*seg, y, Math.min(seg, x+w-(x+i*seg)), h);
+      else       ctx.fillRect(x, y+i*seg, w, Math.min(seg, y+h-(y+i*seg)));
+    }
+  };
+  paint(0,0,A.w,t,true); paint(0,A.h-t,A.w,t,true);
+  paint(0,0,t,A.h,false); paint(A.w-t,0,t,A.h,false);
+  // подсветка ограждения цветом арены
+  ctx.strokeStyle=A.accent; ctx.globalAlpha=.35; ctx.lineWidth=4;
+  ctx.strokeRect(t+2,t+2,A.w-t*2-4,A.h-t*2-4);
+  ctx.globalAlpha=1;
+}
+
+function drawProp(p, A){
+  ctx.save(); ctx.translate(p.x,p.y);
+  if (p.rot) ctx.rotate(p.rot);
+  ctx.scale(p.s,p.s);
+  if (p.kind==='tree'){
+    ctx.fillStyle='rgba(0,0,0,.45)'; ctx.beginPath(); ctx.ellipse(7,11,28,19,0,0,6.283); ctx.fill();
+    // крона из нескольких шапок — объёмнее плоского круга
+    ctx.fillStyle='#256030'; ctx.beginPath(); ctx.arc(0,0,27,0,6.283); ctx.fill();
+    ctx.fillStyle='#31793c'; ctx.beginPath(); ctx.arc(-9,-4,20,0,6.283); ctx.fill();
+    ctx.beginPath(); ctx.arc(11,7,16,0,6.283); ctx.fill();
+    ctx.fillStyle='#43994c'; ctx.beginPath(); ctx.arc(-11,-11,12,0,6.283); ctx.fill();
+    ctx.fillStyle='rgba(255,255,255,.14)'; ctx.beginPath(); ctx.arc(-14,-14,6,0,6.283); ctx.fill();
+  } else if (p.kind==='cactus'){
+    ctx.fillStyle='rgba(0,0,0,.45)'; ctx.beginPath(); ctx.ellipse(7,12,18,11,0,0,6.283); ctx.fill();
+    const arm=(x,y,w,h,r)=>{ ctx.beginPath();
+      ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+      ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); ctx.fill(); };
+    ctx.fillStyle='#3f7a44';
+    arm(-8,-30,16,58,8); arm(-26,-14,20,13,6); arm(6,-4,20,13,6);
+    arm(-26,-24,11,16,5); arm(15,-15,11,16,5);
+    ctx.fillStyle='rgba(255,255,255,.13)'; arm(-6,-28,5,52,3);   // блик по стволу
+  } else if (p.kind==='rockS'){
+    ctx.fillStyle='rgba(0,0,0,.4)'; ctx.beginPath(); ctx.ellipse(4,7,24,16,0,0,6.283); ctx.fill();
+    ctx.fillStyle='#6b5340'; ctx.beginPath(); ctx.arc(0,0,22,0,6.283); ctx.fill();
+    ctx.fillStyle='#7d6350'; ctx.beginPath(); ctx.arc(-6,-6,13,0,6.283); ctx.fill();
+  } else if (p.kind==='lamp'){
+    ctx.fillStyle='rgba(0,0,0,.4)'; ctx.beginPath(); ctx.ellipse(4,8,12,8,0,0,6.283); ctx.fill();
+    ctx.fillStyle='#3a4258'; ctx.fillRect(-4,-8,8,26);
+    const g=ctx.createRadialGradient(0,-14,2,0,-14,48);
+    g.addColorStop(0,'rgba(255,235,170,.5)'); g.addColorStop(1,'rgba(255,220,140,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,-14,48,0,6.283); ctx.fill();
+    ctx.fillStyle='#ffe9a8'; ctx.beginPath(); ctx.arc(0,-14,9,0,6.283); ctx.fill();
+  } else if (p.kind==='stand'){
+    ctx.fillStyle='#2a3145'; ctx.fillRect(-46,-26,92,52);
+    ctx.fillStyle='#333c54'; ctx.fillRect(-46,-26,92,13);
+    if (p.crowd) for (const c of p.crowd){
+      ctx.fillStyle=c.c; ctx.beginPath(); ctx.arc(c.dx*0.62,c.dy*0.62,3.4,0,6.283); ctx.fill();
+    }
+    ctx.strokeStyle='#1b2130'; ctx.lineWidth=3; ctx.strokeRect(-46,-26,92,52);
+  }
+  ctx.restore();
 }
 function drawTrack(circuit){
   ctx.save();
@@ -724,16 +933,34 @@ function drawObs(o){
   ctx.save(); ctx.translate(x,y);
   ctx.fillStyle='rgba(0,0,0,.45)'; ctx.beginPath(); ctx.ellipse(4,7,r*.98,r*.72,0,0,6.283); ctx.fill();
   if (t==='tire'){
-    ctx.fillStyle='#22242c'; ctx.beginPath(); ctx.arc(0,0,r,0,6.283); ctx.fill();
-    ctx.fillStyle='#15171d'; ctx.beginPath(); ctx.arc(0,0,r*.55,0,6.283); ctx.fill();
-    ctx.strokeStyle='#33363f'; ctx.lineWidth=3;
+    // связка покрышек с цветной окантовкой — как на настоящих трассах
+    ctx.fillStyle='#2b2e38'; ctx.beginPath(); ctx.arc(0,0,r,0,6.283); ctx.fill();
+    ctx.strokeStyle='#ffc93c'; ctx.lineWidth=r*.2;
+    ctx.beginPath(); ctx.arc(0,0,r*.88,0,6.283); ctx.stroke();
+    ctx.fillStyle='#3a3e4b'; ctx.beginPath(); ctx.arc(0,0,r*.66,0,6.283); ctx.fill();
+    ctx.fillStyle='#1a1c24'; ctx.beginPath(); ctx.arc(0,0,r*.4,0,6.283); ctx.fill();
+    ctx.strokeStyle='#4a4f5e'; ctx.lineWidth=3;
     for(let i=0;i<8;i++){ const a=i/8*6.283; ctx.beginPath();
-      ctx.moveTo(Math.cos(a)*r*.6,Math.sin(a)*r*.6); ctx.lineTo(Math.cos(a)*r*.95,Math.sin(a)*r*.95); ctx.stroke(); }
+      ctx.moveTo(Math.cos(a)*r*.45,Math.sin(a)*r*.45); ctx.lineTo(Math.cos(a)*r*.64,Math.sin(a)*r*.64); ctx.stroke(); }
   } else if (t==='crate'){
-    ctx.fillStyle='#6b4a24'; ctx.fillRect(-r,-r,r*2,r*2);
-    ctx.fillStyle='#8a6132'; ctx.fillRect(-r+5,-r+5,r*2-10,r*2-10);
-    ctx.strokeStyle='#4a3115'; ctx.lineWidth=4;
-    ctx.beginPath(); ctx.moveTo(-r,-r); ctx.lineTo(r,r); ctx.moveTo(r,-r); ctx.lineTo(-r,r); ctx.stroke();
+    // грузовой контейнер: цвет берётся из арены (5-й элемент), иначе деревянный ящик
+    const base = o[4] || '#a5763d';
+    ctx.fillStyle=base; ctx.fillRect(-r,-r,r*2,r*2);
+    ctx.fillStyle='rgba(255,255,255,.16)'; ctx.fillRect(-r,-r,r*2,r*0.5);
+    ctx.fillStyle='rgba(0,0,0,.22)';
+    for(let i=-r+7;i<r;i+=11) ctx.fillRect(i,-r,4,r*2);      // рёбра контейнера
+    ctx.strokeStyle='rgba(0,0,0,.5)'; ctx.lineWidth=4; ctx.strokeRect(-r,-r,r*2,r*2);
+  } else if (t==='cone'){
+    // дорожный конус: оранжевый с белой полосой
+    ctx.fillStyle='#ff6a1a'; ctx.beginPath(); ctx.arc(0,0,r,0,6.283); ctx.fill();
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(0,0,r*.62,0,6.283); ctx.fill();
+    ctx.fillStyle='#ff8c3a'; ctx.beginPath(); ctx.arc(0,0,r*.34,0,6.283); ctx.fill();
+  } else if (t==='barrel'){
+    // бочка: красно-белая, как на автодроме
+    ctx.fillStyle='#d93b30'; ctx.beginPath(); ctx.arc(0,0,r,0,6.283); ctx.fill();
+    ctx.strokeStyle='#f2f4f8'; ctx.lineWidth=r*.28;
+    ctx.beginPath(); ctx.arc(0,0,r*.72,0,6.283); ctx.stroke();
+    ctx.fillStyle='#8f241c'; ctx.beginPath(); ctx.arc(0,0,r*.3,0,6.283); ctx.fill();
   } else {
     // форма камня считается один раз и запоминается, иначе он дрожал бы каждый кадр
     if (!o.shape){ o.shape=[]; for(let i=0;i<7;i++) o.shape.push(rnd(.86,1.02)); }
@@ -822,8 +1049,8 @@ function drawParts(){
 }
 
 function drawVignette(){
-  const g = ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.34, W/2,H/2,Math.max(W,H)*0.78);
-  g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,.62)');
+  const g = ctx.createRadialGradient(W/2,H/2,Math.min(W,H)*0.42, W/2,H/2,Math.max(W,H)*0.82);
+  g.addColorStop(0,'rgba(0,0,0,0)'); g.addColorStop(1,'rgba(0,0,0,.42)');
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
 }
 function drawTouchUI(){
@@ -843,8 +1070,8 @@ function drawTouchUI(){
 
 /* ---------------- ИГРА ---------------- */
 const game = {
-  state:'menu', mode:'crash', players:1, arenaIdx:0,
-  arena:null, cars:[], time:0, frame:0
+  state:'menu', mode:'crash', modeType:'combat', players:1, arenaIdx:0,
+  arena:null, deco:null, circuit:null, cars:[], time:0, frame:0
 };
 
 function startMatch(){
@@ -853,6 +1080,7 @@ function startMatch(){
   game.modeType = modeDef.type;
   game.circuit = modeDef.type==='combat' ? null : CIRCUITS[A.id];
   game.arena = A; game.cars = []; parts.length=0; initSkid(A);
+  game.deco = buildDeco(A);
   const def = CARS.find(c=>c.id===save.car) || CARS[0];
 
   // старт: в бою — центр арены, в гонке/испытаниях — у первого чекпоинта (финишной линии)
