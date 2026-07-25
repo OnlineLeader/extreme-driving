@@ -104,6 +104,32 @@ canvas { display:block; width:100%; height:100%; }
   </div>
 </div>
 
+<div class="screen" id="scGarage">
+  <div class="card">
+    <h2 id="garCarName">RUSTLER</h2>
+    <div style="display:flex; justify-content:center; margin:4px 0 14px">
+      <canvas id="garPreview" width="240" height="150" style="background:#0d1018; border-radius:12px; max-width:100%"></canvas>
+    </div>
+    <div class="sub" style="margin-bottom:6px">ЦВЕТ</div>
+    <div class="row" id="garColors"></div>
+    <div id="garStats" style="margin-top:16px"></div>
+  </div>
+  <div class="row">
+    <button class="btn sm" onclick="UI.show('scMenu')">НАЗАД</button>
+  </div>
+</div>
+
+<div class="screen" id="scShop">
+  <div class="card" style="max-width:640px">
+    <h2>МАГАЗИН</h2>
+    <div class="sub" id="shopCoins" style="margin-bottom:10px"></div>
+    <div id="shopList"></div>
+  </div>
+  <div class="row">
+    <button class="btn sm" onclick="UI.show('scMenu')">НАЗАД</button>
+  </div>
+</div>
+
 <script>
 /* ==========================================================================
    ⚙️  НАСТРОЙКИ ИГРЫ — МЕНЯЙ ЛЮБЫЕ ЧИСЛА И ОБНОВИ СТРАНИЦУ (F5)
@@ -139,8 +165,21 @@ const S = {
   МОНЕТ_УТЕШИТЕЛЬНЫХ: 20,    // дают всегда, даже если проиграл
 
   // --- БОЙ И ВРЕМЯ ---
-  ВРЕМЯ_БОЯ:          90,    // секунд на арену
+  ВРЕМЯ_БОЯ:          90,    // секунд на арену (Crash Arena)
   БОТОВ_В_БОЮ:        3,     // сколько соперников
+
+  // --- ГОНКА ---
+  КРУГОВ_В_ГОНКЕ:     3,     // сколько кругов нужно проехать
+  ВРЕМЯ_ГОНКИ:        150,   // секунд максимум на гонку (страховка)
+  РАДИУС_ЧЕКПОИНТА:   95,    // насколько широко нужно попасть в чекпоинт
+
+  // --- ИСПЫТАНИЯ (Buggy) ---
+  ВРЕМЯ_ИСПЫТАНИЯ:    100,   // секунд максимум на прохождение трассы
+
+  // --- ТЮНИНГ В ГАРАЖЕ ---
+  МАКС_УРОВЕНЬ_ТЮНИНГА: 5,   // сколько раз можно улучшить один параметр
+  ЦЕНА_ТЮНИНГА_БАЗА:   150,  // цена первого уровня улучшения
+  ЦЕНА_ТЮНИНГА_РОСТ:   1.55, // во сколько раз дорожает каждый следующий уровень
 
   // --- СОЧНОСТЬ (эффекты) ---
   ЗАМОРОЗКА_УДАРА:    70,    // мс стоп-кадра при сильном ударе (0 = выключить)
@@ -178,12 +217,24 @@ const ARENAS = [
          [300,675,40,'tire'],[1050,675,40,'tire']] },
 ];
 
-/* --- РЕЖИМЫ (Racing и Buggy дописываются следующим шагом) --- */
+/* --- РЕЖИМЫ --- */
 const MODES = [
-  { id:'crash', name:'CRASH ARENA', ready:true },
-  { id:'race',  name:'ГОНКА',        ready:false },
-  { id:'buggy', name:'ИСПЫТАНИЯ',    ready:false },
+  { id:'crash', name:'CRASH ARENA', ready:true, type:'combat' },
+  { id:'race',  name:'ГОНКА',       ready:true, type:'race'   },
+  { id:'buggy', name:'ИСПЫТАНИЯ',   ready:true, type:'trial'  },
 ];
+
+/* --- ЦВЕТА ДЛЯ ГАРАЖА --- */
+const COLORS = ['#e8433a','#57c94a','#3d84f7','#ffc93c','#8b5cf6','#ff7a1a','#e8ecf5','#171a22'];
+
+/* --- ТРАССЫ: чекпоинты по кругу (для ГОНКИ) и трасса до финиша (для ИСПЫТАНИЙ) ---
+   Последняя точка списка = финиш/старт. Для гонки трасса закольцована (после
+   последней точки снова первая), для испытаний — трасса разомкнутая. */
+const CIRCUITS = {
+  dump:    [[750,150],[1320,300],[1320,750],[750,930],[180,750],[180,300]],
+  canyon:  [[850,140],[1560,300],[1560,750],[850,880],[140,750],[140,300]],
+  stadium: [[675,160],[1150,420],[1150,930],[675,1200],[200,930],[200,420]],
+};
 
 /* ==========================================================================
    Дальше — код игры. Числа менять лучше в блоке НАСТРОЙКИ выше.
@@ -321,6 +372,8 @@ class Car {
     this.maxTurbo = this.turbo;
     this.score=0; this.dead=0; this.r=21; this.w=26; this.l=44;
     this.wob=0; this.boosting=false;
+    // состояние для режимов ГОНКА / ИСПЫТАНИЯ
+    this.cp=0; this.lap=0; this.finished=false; this.finishFrame=0; this.place=0;
   }
   drive(inp){
     if(this.dead>0) return;
@@ -389,7 +442,28 @@ const BRAINS = [
   { name:'ТРУС',   aggr:0.42, aim:0.80, react:0.14, turboAt:120, keep:0.75 },
 ];
 
+function avoidObstacles(bot, world, dx, dy){
+  // объезд препятствий: смотрим вперёд, если помеха — уводим руль
+  const fx = bot.x + Math.cos(bot.a)*70, fy = bot.y + Math.sin(bot.a)*70;
+  for (const o of world.arena.obs){
+    const od = Math.hypot(fx-o[0], fy-o[1]);
+    if (od < o[2]+30){
+      const ax = (fx-o[0])/(od||1), ay = (fy-o[1])/(od||1);
+      dx += ax*1.5; dy += ay*1.5;
+    }
+  }
+  // держимся подальше от стен
+  const m=110, A=world.arena;
+  if (bot.x<m) dx += (m-bot.x)/m*1.6;
+  if (bot.x>A.w-m) dx -= (bot.x-(A.w-m))/m*1.6;
+  if (bot.y<m) dy += (m-bot.y)/m*1.6;
+  if (bot.y>A.h-m) dy -= (bot.y-(A.h-m))/m*1.6;
+  return {dx,dy};
+}
+
 function botThink(bot, world){
+  if (world.modeType !== 'combat') return botThinkRace(bot, world);
+
   const b = bot.brain;
   bot._t = (bot._t||0) - 1;
   if (bot._t <= 0){                     // «время реакции» — думает не каждый кадр
@@ -421,28 +495,27 @@ function botThink(bot, world){
 
   let dx = aim.x - bot.x, dy = aim.y - bot.y;
   const d = Math.hypot(dx,dy) || 1; dx/=d; dy/=d;
-
-  // объезд препятствий: смотрим вперёд, если помеха — уводим руль
-  const fx = bot.x + Math.cos(bot.a)*70, fy = bot.y + Math.sin(bot.a)*70;
-  for (const o of world.arena.obs){
-    const od = Math.hypot(fx-o[0], fy-o[1]);
-    if (od < o[2]+30){
-      const ax = (fx-o[0])/(od||1), ay = (fy-o[1])/(od||1);
-      dx += ax*1.5; dy += ay*1.5;
-    }
-  }
-  // держимся подальше от стен
-  const m=110, A=world.arena;
-  if (bot.x<m) dx += (m-bot.x)/m*1.6;
-  if (bot.x>A.w-m) dx -= (bot.x-(A.w-m))/m*1.6;
-  if (bot.y<m) dy += (m-bot.y)/m*1.6;
-  if (bot.y>A.h-m) dy -= (bot.y-(A.h-m))/m*1.6;
+  ({dx,dy} = avoidObstacles(bot, world, dx, dy));
 
   const nl = Math.hypot(dx,dy)||1;
   inp.dir=true; inp.dx=dx/nl; inp.dy=dy/nl;
   inp.boost = 0.55 + b.aggr*0.6;
   if (!aim.scared && d < b.turboAt && bot.turbo > 25) inp.turbo = true;
   if (aim.scared && bot.turbo > 40) inp.turbo = true;
+  return inp;
+}
+
+/* Боты в ГОНКЕ и ИСПЫТАНИЯХ едут по чекпоинтам трассы, а не друг за другом */
+function botThinkRace(bot, world){
+  const inp = { dir:false, dx:0, dy:0, up:1, down:0, turn:0, turbo:false, brake:false, boost:1 };
+  if (bot.finished) return inp;
+  const cp = world.circuit[bot.cp % world.circuit.length];
+  let dx = cp[0] - bot.x, dy = cp[1] - bot.y;
+  ({dx,dy} = avoidObstacles(bot, world, dx, dy));
+  const nl = Math.hypot(dx,dy)||1;
+  inp.dir=true; inp.dx=dx/nl; inp.dy=dy/nl;
+  inp.boost = 0.85 + bot.brain.aggr*0.3;
+  if (bot.turbo > 30) inp.turbo = true;
   return inp;
 }
 
@@ -530,7 +603,9 @@ function collide(world){
         const vn = a.vx*nx + a.vy*ny;
         if (vn<0){ a.vx-=vn*nx*1.5; a.vy-=vn*ny*1.5;
           const f=Math.abs(vn);
-          if (f>S.УРОН_ПОРОГ){ a.damage(f*S.УРОН_СИЛА*0.35, a.x-nx*a.r, a.y-ny*a.r);
+          if (f>S.УРОН_ПОРОГ){
+            if (game.modeType==='combat') a.damage(f*S.УРОН_СИЛА*0.35, a.x-nx*a.r, a.y-ny*a.r);
+            else spark(a.x-nx*a.r, a.y-ny*a.r, 6, '255,210,90', 1);
             shake(f*1.2); sfx('hit'); }
           a.sp *= 0.55; }
       }
@@ -553,17 +628,19 @@ function collide(world){
 
           if (closing > S.УРОН_ПОРОГ){
             const power = closing - S.УРОН_ПОРОГ;
-            // кто врезался носом — тот бьёт сильнее
-            const aFace = Math.cos(a.a)*nx + Math.sin(a.a)*ny;      //  1 = а едет носом в b
-            const bFace = -(Math.cos(b.a)*nx + Math.sin(b.a)*ny);
-            const aDmg = power * S.УРОН_СИЛА * clamp(0.35 + bFace*0.9, 0.2, 1.5);
-            const bDmg = power * S.УРОН_СИЛА * clamp(0.35 + aFace*0.9, 0.2, 1.5);
             const hx=(a.x+b.x)/2, hy=(a.y+b.y)/2;
 
-            const bHpBefore=b.hp, aHpBefore=a.hp;
-            b.damage(bDmg, hx, hy); a.damage(aDmg, hx, hy);
-            a.score += Math.round(Math.min(bDmg,bHpBefore) * S.ОЧКИ_ЗА_УРОН/10);
-            b.score += Math.round(Math.min(aDmg,aHpBefore) * S.ОЧКИ_ЗА_УРОН/10);
+            if (game.modeType==='combat'){
+              // кто врезался носом — тот бьёт сильнее
+              const aFace = Math.cos(a.a)*nx + Math.sin(a.a)*ny;      //  1 = а едет носом в b
+              const bFace = -(Math.cos(b.a)*nx + Math.sin(b.a)*ny);
+              const aDmg = power * S.УРОН_СИЛА * clamp(0.35 + bFace*0.9, 0.2, 1.5);
+              const bDmg = power * S.УРОН_СИЛА * clamp(0.35 + aFace*0.9, 0.2, 1.5);
+              const bHpBefore=b.hp, aHpBefore=a.hp;
+              b.damage(bDmg, hx, hy); a.damage(aDmg, hx, hy);
+              a.score += Math.round(Math.min(bDmg,bHpBefore) * S.ОЧКИ_ЗА_УРОН/10);
+              b.score += Math.round(Math.min(aDmg,aHpBefore) * S.ОЧКИ_ЗА_УРОН/10);
+            }
 
             shake(power*2.6); freeze(power*45); sfx('hit');
             spark(hx,hy, 10+Math.min(20,power*8|0), '255,235,140', 1+power);
@@ -575,7 +652,33 @@ function collide(world){
 }
 function wallFx(a){
   const f = Math.hypot(a.vx,a.vy);
-  if (f > S.УРОН_ПОРОГ*1.4){ a.damage(f*S.УРОН_СИЛА*0.2, a.x, a.y); shake(f); sfx('hit'); }
+  if (f > S.УРОН_ПОРОГ*1.4){
+    if (game.modeType==='combat') a.damage(f*S.УРОН_СИЛА*0.2, a.x, a.y);
+    else spark(a.x, a.y, 5, '255,210,90', 1);
+    shake(f); sfx('hit');
+  }
+}
+
+/* ---------------- ПРОХОЖДЕНИЕ ЧЕКПОИНТОВ (ГОНКА / ИСПЫТАНИЯ) ---------------- */
+function raceProgress(world){
+  const circuit = world.circuit; if (!circuit) return;
+  for (const c of world.cars){
+    if (c.dead>0 || c.finished) continue;
+    const target = circuit[c.cp % circuit.length];
+    if (dist(c, {x:target[0], y:target[1]}) < S.РАДИУС_ЧЕКПОИНТА){
+      c.cp++;
+      spark(target[0], target[1], 10, '160,220,255', 1);
+      if (world.modeType==='race'){
+        if (c.cp % circuit.length === 0){
+          c.lap++;
+          if (c.lap >= S.КРУГОВ_В_ГОНКЕ){ c.finished=true; c.finishFrame=world.frame; }
+        }
+      } else {                                   // trial: одна разомкнутая трасса
+        if (c.cp >= circuit.length){ c.finished=true; c.finishFrame=world.frame; }
+      }
+      if (c.finished) sfx('coin');
+    }
+  }
 }
 
 /* ---------------- ОТРИСОВКА ---------------- */
@@ -595,6 +698,26 @@ function drawArena(A){
   ctx.globalAlpha=1;
   // препятствия
   for(const o of A.obs) drawObs(o);
+  // трасса — только в ГОНКЕ и ИСПЫТАНИЯХ
+  if (game.modeType !== 'combat' && game.circuit) drawTrack(game.circuit);
+}
+function drawTrack(circuit){
+  ctx.save();
+  ctx.strokeStyle='rgba(255,210,60,.55)'; ctx.lineWidth=6; ctx.setLineDash([26,18]);
+  ctx.beginPath();
+  circuit.forEach((p,i)=> i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));
+  if (game.modeType==='race') ctx.closePath();
+  ctx.stroke(); ctx.setLineDash([]);
+  circuit.forEach((p,i)=>{
+    const isFinish = i===0;
+    ctx.beginPath(); ctx.arc(p[0],p[1], S.РАДИУС_ЧЕКПОИНТА, 0, 6.283);
+    ctx.strokeStyle = isFinish ? '#49d16b' : 'rgba(120,200,255,.75)';
+    ctx.lineWidth = isFinish ? 6 : 4;
+    ctx.stroke();
+    ctx.fillStyle = isFinish ? 'rgba(73,209,107,.14)' : 'rgba(120,200,255,.08)';
+    ctx.fill();
+  });
+  ctx.restore();
 }
 function drawObs(o){
   const [x,y,r,t]=o;
@@ -726,23 +849,35 @@ const game = {
 
 function startMatch(){
   const A = ARENAS[game.arenaIdx];
+  const modeDef = MODES.find(m=>m.id===game.mode);
+  game.modeType = modeDef.type;
+  game.circuit = modeDef.type==='combat' ? null : CIRCUITS[A.id];
   game.arena = A; game.cars = []; parts.length=0; initSkid(A);
   const def = CARS.find(c=>c.id===save.car) || CARS[0];
 
+  // старт: в бою — центр арены, в гонке/испытаниях — у первого чекпоинта (финишной линии)
+  const startX = game.circuit ? game.circuit[0][0] : A.w*0.5;
+  const startY = game.circuit ? game.circuit[0][1] : A.h*0.72;
+  const startA = game.circuit ? Math.atan2(game.circuit[1][1]-game.circuit[0][1], game.circuit[1][0]-game.circuit[0][0]) : -1.57;
+
   for (let i=0;i<game.players;i++){
-    const c = new Car({ x:A.w*0.5 + (i?70:-70), y:A.h*0.72, a:-1.57,
-      def, up:save.up, pi:i, color: save.color || def.color, name:'P'+(i+1) });
+    const c = new Car({ x:startX + (i?46:-46)*Math.cos(startA+1.57), y:startY + (i?46:-46)*Math.sin(startA+1.57),
+      a:startA, def, up:save.up, pi:i, color: save.color || def.color, name:'P'+(i+1) });
     game.cars.push(c);
   }
   for (let i=0;i<S.БОТОВ_В_БОЮ;i++){
     const bd = CARS[Math.min(CARS.length-1, 1 + (i % 3))];
     const brain = BRAINS[i % BRAINS.length];
-    const ang = (i/S.БОТОВ_В_БОЮ)*6.283;
-    game.cars.push(new Car({ x:A.w/2 + Math.cos(ang)*A.w*0.3, y:A.h/2 + Math.sin(ang)*A.h*0.28,
-      a:ang+3.14, def:bd, bot:true, brain, name:brain.name }));
+    let bx, by, ba;
+    if (game.circuit){ bx=startX+(i+2)*40*Math.cos(startA+1.57); by=startY+(i+2)*40*Math.sin(startA+1.57); ba=startA; }
+    else { const ang=(i/S.БОТОВ_В_БОЮ)*6.283; bx=A.w/2+Math.cos(ang)*A.w*0.3; by=A.h/2+Math.sin(ang)*A.h*0.28; ba=ang+3.14; }
+    game.cars.push(new Car({ x:bx, y:by, a:ba, def:bd, bot:true, brain, name:brain.name }));
   }
-  cam.x = A.w/2; cam.y = A.h/2; cam.z = 0.8;
-  game.time = S.ВРЕМЯ_БОЯ * 60; game.frame = 0;
+  // машины стартуют уже возле circuit[0] — считаем его пройденным сразу
+  if (game.circuit) for (const c of game.cars) c.cp = 1;
+  cam.x = startX; cam.y = startY; cam.z = 0.8;
+  const timeS = game.modeType==='combat' ? S.ВРЕМЯ_БОЯ : game.modeType==='race' ? S.ВРЕМЯ_ГОНКИ : S.ВРЕМЯ_ИСПЫТАНИЯ;
+  game.time = timeS * 60; game.frame = 0;
   game.state = 'play';
   UI.show(null); document.getElementById('hud').classList.add('on');
   document.getElementById('pP2').style.display = game.players===2 ? '' : 'none';
@@ -758,6 +893,7 @@ function tick(){
   const world = game;
   for (const c of world.cars){
     if (c.dead>0){ c.dead--; if (c.dead<=0) c.respawn(world.arena); continue; }
+    if (c.finished){ c.sp*=0.9; c.vx*=0.9; c.vy*=0.9; continue; }
     const inp = c.pi>=0 ? (()=>{ const i=readInput(c.pi);
         return { dir:i.dir, dx:i.dx, dy:i.dy, up:i.up, down:i.down, turn:i.turn,
                  turbo:i.turbo, brake:!!i.down, boost:1 }; })()
@@ -765,6 +901,7 @@ function tick(){
     c.drive(inp);
   }
   collide(world);
+  if (game.modeType !== 'combat') raceProgress(world);
   updParts();
   updCam();
 
@@ -772,12 +909,30 @@ function tick(){
   engine(p1 ? Math.abs(p1.sp)*(p1.boosting?1.6:1) : 0);
 
   game.time--;
-  if (game.time <= 0) finish();
+  if (game.modeType==='combat'){
+    if (game.time <= 0) finish();
+  } else {
+    const humans = world.cars.filter(c=>c.pi>=0);
+    if (humans.every(h=>h.finished) || game.time<=0) finish();
+  }
 }
 
 function finish(){
-  game.state='result';
-  document.getElementById('hud').classList.remove('on');
+  if (game.modeType==='combat') return finishCombat();
+  if (game.modeType==='race')   return finishRace();
+  return finishTrial();
+}
+
+function payout(html, earned){
+  save.coins += earned; persist(); sfx('coin');
+  html += `<div class="line"><span>Получено монет</span><b>🪙 ${earned}</b></div>`;
+  html += `<div class="line"><span>Всего монет</span><b>🪙 ${save.coins}</b></div>`;
+  document.getElementById('resBody').innerHTML = html;
+  game.state='result'; document.getElementById('hud').classList.remove('on');
+  UI.show('scResult');
+}
+
+function finishCombat(){
   const humans = game.cars.filter(c=>c.pi>=0);
   const all = [...game.cars].sort((a,b)=>b.score-a.score);
   const winner = all[0];
@@ -785,19 +940,56 @@ function finish(){
   for (const h of humans) earned += Math.round(h.score * S.МОНЕТ_ЗА_100_ОЧКОВ/100);
   earned += S.МОНЕТ_УТЕШИТЕЛЬНЫХ;
   if (winner && winner.pi>=0) earned += S.МОНЕТ_ЗА_ПОБЕДУ;
-  save.coins += earned;
   const bestNow = Math.max(...humans.map(h=>h.score));
   if (bestNow > save.best) save.best = bestNow;
-  persist(); sfx('coin');
 
   let html='';
   for (const h of humans) html += `<div class="line"><span>${h.name} — очки</span><b>${h.score}</b></div>`;
   html += `<div class="line"><span>Победитель</span><b>${winner? (winner.pi>=0?winner.name:'БОТ '+winner.name) : '—'}</b></div>`;
-  html += `<div class="line"><span>Получено монет</span><b>🪙 ${earned}</b></div>`;
-  html += `<div class="line"><span>Всего монет</span><b>🪙 ${save.coins}</b></div>`;
   html += `<div class="line"><span>Рекорд</span><b>${save.best}</b></div>`;
-  document.getElementById('resBody').innerHTML = html;
-  UI.show('scResult');
+  payout(html, earned);
+}
+
+/* Место в гонке: раньше финишировал — выше место; не финишировал — по числу кругов/чекпоинтов */
+function ranked(){
+  return [...game.cars].sort((a,b)=>{
+    if (a.finished && b.finished) return a.finishFrame-b.finishFrame;
+    if (a.finished) return -1; if (b.finished) return 1;
+    if (a.lap!==b.lap) return b.lap-a.lap;
+    return b.cp-a.cp;
+  });
+}
+const PLACE_COINS = [120, 80, 50, 25];
+
+function finishRace(){
+  const order = ranked();
+  const humans = game.cars.filter(c=>c.pi>=0);
+  let earned = S.МОНЕТ_УТЕШИТЕЛЬНЫХ;
+  let html='';
+  humans.forEach(h=>{
+    const place = order.indexOf(h)+1;
+    earned += PLACE_COINS[place-1] || 15;
+    html += `<div class="line"><span>${h.name} — место</span><b>${place} из ${order.length}</b></div>`;
+  });
+  const winner = order[0];
+  html += `<div class="line"><span>Победитель</span><b>${winner.pi>=0?winner.name:'БОТ '+winner.name}</b></div>`;
+  payout(html, earned);
+}
+
+function finishTrial(){
+  const humans = game.cars.filter(c=>c.pi>=0);
+  let earned = S.МОНЕТ_УТЕШИТЕЛЬНЫХ, html='';
+  for (const h of humans){
+    if (h.finished){
+      const sec = (h.finishFrame/60).toFixed(1);
+      const sc = Math.max(20, Math.round(420 - h.finishFrame/60*4));
+      earned += Math.round(sc * S.МОНЕТ_ЗА_100_ОЧКОВ/100) + 30;
+      html += `<div class="line"><span>${h.name} — время</span><b>${sec} сек</b></div>`;
+    } else {
+      html += `<div class="line"><span>${h.name}</span><b>не финишировал</b></div>`;
+    }
+  }
+  payout(html, earned);
 }
 
 function render(){
@@ -819,14 +1011,25 @@ function hud(){
   if (game.state!=='play') return;
   const t = Math.max(0, Math.ceil(game.time/60));
   document.getElementById('pTime').textContent = Math.floor(t/60)+':'+String(t%60).padStart(2,'0');
+  const order = game.modeType!=='combat' ? ranked() : null;
   for (let i=0;i<2;i++){
     const el = document.getElementById(i===0?'pP1':'pP2');
     const c = game.cars.find(x=>x.pi===i);
     if (!c || !el) continue;
-    el.querySelector('span').textContent = c.score;
-    const bar = el.querySelector('.hpbar i'), p = c.hp/c.maxHp;
-    bar.style.width = (p*100)+'%';
-    bar.style.background = p>.5?'#49d16b':p>.25?'#ffc93c':'#e8433a';
+    const bar = el.querySelector('.hpbar i');
+    if (game.modeType==='combat'){
+      el.querySelector('span').textContent = c.score;
+      const p = c.hp/c.maxHp;
+      bar.style.width = (p*100)+'%';
+      bar.style.background = p>.5?'#49d16b':p>.25?'#ffc93c':'#e8433a';
+    } else if (game.modeType==='race'){
+      const place = order.indexOf(c)+1;
+      el.querySelector('span').textContent = c.finished ? `финиш ${place}` : `круг ${Math.min(c.lap+1,S.КРУГОВ_В_ГОНКЕ)}/${S.КРУГОВ_В_ГОНКЕ} · ${place} место`;
+      bar.style.width = '100%'; bar.style.background = '#49d16b';
+    } else {
+      el.querySelector('span').textContent = c.finished ? `финиш ${(c.finishFrame/60).toFixed(1)}с` : `чекпоинт ${c.cp}/${game.circuit.length}`;
+      bar.style.width = (Math.min(1,c.cp/game.circuit.length)*100)+'%'; bar.style.background = '#49d16b';
+    }
   }
 }
 
@@ -871,9 +1074,105 @@ const UI = {
   },
   setPlayers(n){ game.players=n; this.buildSetup(); },
   start(){ startMatch(); },
-  garage(){ alert('Гараж делаем следующим шагом'); },
-  shop(){ alert('Магазин делаем следующим шагом'); },
+
+  /* ---------------- ГАРАЖ ---------------- */
+  garage(){ this.show('scGarage'); this.renderGarage(); },
+  renderGarage(){
+    const def = CARS.find(c=>c.id===save.car) || CARS[0];
+    const color = save.color || def.color;
+    document.getElementById('garCarName').textContent = def.name;
+
+    // мини-превью машины
+    const cv2 = document.getElementById('garPreview'), c2 = cv2.getContext('2d');
+    c2.clearRect(0,0,cv2.width,cv2.height);
+    drawMiniCar(c2, cv2.width/2, cv2.height/2, 1.9, color);
+
+    // цвета
+    const cr = document.getElementById('garColors'); cr.innerHTML='';
+    COLORS.forEach(col=>{
+      const b = document.createElement('button');
+      b.className='btn sm'; b.style.minWidth='0'; b.style.width='38px'; b.style.height='38px';
+      b.style.padding='0'; b.style.background=col;
+      b.style.boxShadow = (col===color) ? '0 0 0 3px #ffd23f' : '0 3px 0 rgba(0,0,0,.35)';
+      b.onclick=()=>{ save.color=col; persist(); this.renderGarage(); };
+      cr.appendChild(b);
+    });
+
+    // тюнинг: скорость / ускорение / прочность / турбо
+    const stats = [ ['spd','СКОРОСТЬ'], ['acc','УСКОРЕНИЕ'], ['hp','ПРОЧНОСТЬ'], ['turbo','ТУРБО'] ];
+    const box = document.getElementById('garStats'); box.innerHTML='';
+    for (const [key,label] of stats){
+      const lvl = save.up[key];
+      const max = lvl >= S.МАКС_УРОВЕНЬ_ТЮНИНГА;
+      const cost = Math.round(S.ЦЕНА_ТЮНИНГА_БАЗА * Math.pow(S.ЦЕНА_ТЮНИНГА_РОСТ, lvl));
+      const dots = Array.from({length:S.МАКС_УРОВЕНЬ_ТЮНИНГА}, (_,i)=>
+        `<span style="display:inline-block;width:16px;height:8px;margin-right:3px;border-radius:2px;
+         background:${i<lvl?'#ffd23f':'#2a3247'}"></span>`).join('');
+      const row = document.createElement('div');
+      row.className='line'; row.style.alignItems='center';
+      const afford = save.coins>=cost;
+      row.innerHTML = `<span>${label}<br>${dots}</span>` +
+        (max ? `<b style="color:#49d16b">МАКС</b>`
+             : `<button class="btn sm y" style="min-width:0;${afford?'':'opacity:.4'}" ${afford?'':'disabled'}>🪙 ${cost}</button>`);
+      if (!max){
+        row.querySelector('button').onclick=()=>{
+          if (save.coins < cost) return;
+          save.coins -= cost; save.up[key]++; persist(); this.renderGarage();
+        };
+      }
+      box.appendChild(row);
+    }
+  },
+
+  /* ---------------- МАГАЗИН ---------------- */
+  shop(){ this.show('scShop'); this.renderShop(); },
+  renderShop(){
+    document.getElementById('shopCoins').textContent = '🪙 У тебя: ' + save.coins;
+    const list = document.getElementById('shopList'); list.innerHTML='';
+    for (const def of CARS){
+      const owned = save.owned.includes(def.id);
+      const selected = save.car===def.id;
+      const card = document.createElement('div');
+      card.className='line'; card.style.alignItems='center';
+      const bars = ['spd','acc','hp'].map(k=>{
+        const v = clamp(def[k],0.6,1.5), pct = Math.round((v-0.6)/0.9*100);
+        return `<div style="width:70px;height:6px;background:#2a3247;border-radius:3px;display:inline-block;margin-right:4px;overflow:hidden">
+                  <div style="width:${pct}%;height:100%;background:${def.color}"></div></div>`;
+      }).join('');
+      let action;
+      if (selected) action = `<b style="color:#49d16b">ВЫБРАН</b>`;
+      else if (owned) action = `<button class="btn sm g" style="min-width:0">ВЫБРАТЬ</button>`;
+      else if (save.coins>=def.price) action = `<button class="btn sm y" style="min-width:0">🪙 ${def.price}</button>`;
+      else action = `<span style="color:#5c6785;font-size:13px">не хватает ${def.price-save.coins} 🪙</span>`;
+      card.innerHTML = `<span><b style="color:${def.color}">${def.name}</b><br>${bars}</span>${action}`;
+      const btn = card.querySelector('button');
+      if (btn){
+        btn.onclick = ()=>{
+          if (owned){ save.car=def.id; } else { save.coins-=def.price; save.owned.push(def.id); save.car=def.id; }
+          persist(); this.renderShop();
+        };
+      }
+      list.appendChild(card);
+    }
+  },
 };
+
+/* Мини-машина для превью в гараже — та же геометрия, что и в бою, но без мира */
+function drawMiniCar(c2, cx, cy, s, color){
+  function rr2(x,y,w,h,r){ c2.beginPath(); c2.moveTo(x+r,y); c2.arcTo(x+w,y,x+w,y+h,r); c2.arcTo(x+w,y+h,x,y+h,r);
+    c2.arcTo(x,y+h,x,y,r); c2.arcTo(x,y,x+w,y,r); c2.closePath(); }
+  const L=44*s, Wd=26*s;
+  c2.save(); c2.translate(cx,cy);
+  c2.fillStyle='rgba(0,0,0,.4)'; c2.beginPath(); c2.ellipse(3,6,L*.5,Wd*.55,0,0,6.283); c2.fill();
+  c2.fillStyle=color; rr2(-L/2,-Wd/2,L,Wd,7*s); c2.fill();
+  c2.fillStyle='rgba(255,255,255,.13)'; rr2(-L/2+3*s,-Wd/2+3*s,L-6*s,Wd/2-2*s,5*s); c2.fill();
+  c2.fillStyle='rgba(12,16,26,.92)'; rr2(-L*.12,-Wd/2+4*s,L*.34,Wd-8*s,4*s); c2.fill();
+  c2.fillStyle='rgba(255,255,255,.22)'; c2.fillRect(-L/2+4*s,-2*s,L-8*s,4*s);
+  c2.fillStyle='#0d0f14';
+  for (const sd of [-1,1]) for (const f of [-1,1]) c2.fillRect(f*L*0.28-6*s, sd*(Wd/2)-3*s, 12*s, 6*s);
+  c2.fillStyle='#dff0ff'; c2.fillRect(L*.44,-Wd*.42,4*s,6*s); c2.fillRect(L*.44,Wd*.42-6*s,4*s,6*s);
+  c2.restore();
+}
 UI.show('scMenu');
 
 /* полноэкранный режим по первому касанию на телефоне */
