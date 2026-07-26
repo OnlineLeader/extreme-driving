@@ -193,9 +193,9 @@ const S = {
   ЧАСТИЦЫ:            true,  // искры, дым, обломки
 
   // --- ВИД КАМЕРЫ ---
-  НАКЛОН:             0.44,  // 1 = строго сверху, 0.3 = сильно сбоку
-  ВЫСОТА_МАШИНЫ:      19,    // насколько машина «толстая» в высоту
-  КАМЕРА_ЗА_МАШИНОЙ:  true,  // true = камера разворачивается за машину (как в гонках)
+  НАКЛОН:             0.58,  // 1 = строго сверху, 0.3 = сильно сбоку
+  ВЫСОТА_МАШИНЫ:      7,    // насколько машина «толстая» в высоту
+  КАМЕРА_ЗА_МАШИНОЙ:  false,  // true = камера разворачивается за машину (как в гонках)
                              // работает только при игре одному; вдвоём — общий вид
   ПОВОРОТ_ПЛАВНОСТЬ:  0.07,  // как быстро камера доворачивает за машиной
   ОТСТУП_НАЗАД:       120,   // насколько камера отстаёт позади машины
@@ -712,12 +712,12 @@ function engine(sp, boost, skid){
   if(!AC||!ENG) return;
   const on = game.state==='play';
   const rpm = clamp(sp/6, 0, 1.35);
-  const base = 42 + rpm*118 + (boost?26:0);
+  const base = 30 + rpm*62 + (boost?12:0);
   const t = AC.currentTime, S1 = 0.08;
   ENG.o1.frequency.setTargetAtTime(base,        t, S1);
-  ENG.o2.frequency.setTargetAtTime(base*2.01,   t, S1);
+  ENG.o2.frequency.setTargetAtTime(base*0.5,    t, S1);
   ENG.o3.frequency.setTargetAtTime(base*1.007,  t, S1);   // биения между пилами = живой рык
-  ENG.lp.frequency.setTargetAtTime(420 + rpm*2100 + (boost?900:0), t, 0.1);
+  ENG.lp.frequency.setTargetAtTime(240 + rpm*950 + (boost?420:0), t, 0.1);
   ENG.ng.gain.setTargetAtTime(on ? (0.04 + rpm*0.09 + (boost?0.1:0)) : 0, t, 0.1);
   ENG.g.gain.setTargetAtTime(on ? (0.05 + rpm*0.11) : 0, t, 0.12);
   if (SKID){
@@ -1312,6 +1312,12 @@ function drawCarSkin(c, def, col, L, Wd, dead){
 
   // кузов сверху
   ctx.fillStyle = col; carBodyPath(L, Wd); ctx.fill();
+  // низкий силуэт: тёмные борта-обвес по краям делают машину визуально приземистой
+  ctx.save(); carBodyPath(L, Wd); ctx.clip();
+  ctx.fillStyle = 'rgba(0,0,0,.35)';
+  ctx.fillRect(-L/2, -h, L, Wd*0.16);
+  ctx.fillRect(-L/2,  h-Wd*0.16, L, Wd*0.16);
+  ctx.restore();
   // блик вдоль корпуса — объём
   const gl = ctx.createLinearGradient(0,-h,0,h);
   gl.addColorStop(0,'rgba(255,255,255,.24)'); gl.addColorStop(.42,'rgba(255,255,255,.05)');
