@@ -194,7 +194,7 @@ const S = {
 
   // --- ВИД КАМЕРЫ ---
   НАКЛОН:             0.58,  // 1 = строго сверху, 0.3 = сильно сбоку
-  ВЫСОТА_МАШИНЫ:      7,    // насколько машина «толстая» в высоту
+  ВЫСОТА_МАШИНЫ:      4,    // насколько машина «толстая» в высоту
   КАМЕРА_ЗА_МАШИНОЙ:  false,  // true = камера разворачивается за машину (как в гонках)
                              // работает только при игре одному; вдвоём — общий вид
   ПОВОРОТ_ПЛАВНОСТЬ:  0.07,  // как быстро камера доворачивает за машиной
@@ -215,17 +215,17 @@ const S = {
    dark — цвет крыши и деталей, spoiler — антикрыло, num — номер на кузове */
 const CARS = [
   { id:'rustler',  name:'RUSTLER',   price:0,    color:'#e8433a', dark:'#2b2f3a', skin:'muscle',
-    spoiler:false, num:'7',  spd:1.00, acc:1.00, hp:1.00, len:60, wid:34 },
+    spoiler:false, num:'7',  spd:1.00, acc:1.00, hp:1.00, len:64, wid:28 },
   { id:'bulldozer',name:'BULLDOZER', price:500,  color:'#57c94a', dark:'#2f3a2c', skin:'offroad',
-    spoiler:false, num:'4',  spd:0.88, acc:0.92, hp:1.45, len:62, wid:40 },
+    spoiler:false, num:'4',  spd:0.88, acc:0.92, hp:1.45, len:64, wid:33 },
   { id:'phantom',  name:'PHANTOM',   price:900,  color:'#3d84f7', dark:'#1b2740', skin:'sport',
-    spoiler:true,  num:'12', spd:1.12, acc:1.10, hp:0.85, len:61, wid:33 },
+    spoiler:true,  num:'12', spd:1.12, acc:1.10, hp:0.85, len:66, wid:27 },
   { id:'thunder',  name:'THUNDER',   price:1600, color:'#ffc93c', dark:'#3a2f14', skin:'race',
-    spoiler:true,  num:'3',  spd:1.18, acc:1.16, hp:0.92, len:62, wid:33 },
+    spoiler:true,  num:'3',  spd:1.18, acc:1.16, hp:0.92, len:66, wid:27 },
   { id:'shadow',   name:'SHADOW',    price:2600, color:'#8b5cf6', dark:'#15121f', skin:'stealth',
-    spoiler:true,  num:'99', spd:1.26, acc:1.22, hp:0.95, len:62, wid:33 },
+    spoiler:true,  num:'99', spd:1.26, acc:1.22, hp:0.95, len:66, wid:27 },
   { id:'blaze',    name:'BLAZE',     price:4000, color:'#ff7a1a', dark:'#3a1c08', skin:'flame',
-    spoiler:true,  num:'1',  spd:1.34, acc:1.30, hp:1.05, len:63, wid:34 },
+    spoiler:true,  num:'1',  spd:1.34, acc:1.30, hp:1.05, len:68, wid:28 },
 ];
 
 /* --- АРЕНЫ: размер поля, цвета и препятствия (x, y, радиус, тип) ---
@@ -595,7 +595,7 @@ function botThinkRace(bot, world){
 /* ---------------- КАМЕРА / ТРЯСКА / СТОП-КАДР ---------------- */
 const cam = { x:0, y:0, z:1, tz:1, sh:0, punch:0, rot:0 };
 /* камера крутится за машиной только в одиночной игре */
-function chaseOn(){ return S.КАМЕРА_ЗА_МАШИНОЙ && game.players===1; }
+function chaseOn(){ return false; }   // поворот камеры отключён: переворачивал экран
 let freezeUntil = 0;
 function shake(v){
   cam.sh = Math.min(26, cam.sh + v*S.ТРЯСКА);
@@ -1292,16 +1292,17 @@ function drawCar(c){
 function carBodyPath(L, Wd){
   const h = Wd/2, F = L/2;
   ctx.beginPath();
-  ctx.moveTo(-F*0.86, -h*0.80);
-  ctx.quadraticCurveTo(-F*1.02, -h*0.72, -F*0.99, -h*0.30);   // корма
-  ctx.lineTo(-F*0.99, h*0.30);
-  ctx.quadraticCurveTo(-F*1.02, h*0.72, -F*0.86, h*0.80);
-  ctx.lineTo(-F*0.55, h*0.97);                                 // расширение у задней оси
-  ctx.lineTo(F*0.30, h*0.97);
-  ctx.quadraticCurveTo(F*0.86, h*0.90, F*0.99, h*0.34);        // сужение к носу
-  ctx.quadraticCurveTo(F*1.03, 0, F*0.99, -h*0.34);
-  ctx.quadraticCurveTo(F*0.86, -h*0.90, F*0.30, -h*0.97);
-  ctx.lineTo(-F*0.55, -h*0.97);
+  ctx.moveTo(-F*0.80, -h*0.74);
+  ctx.quadraticCurveTo(-F*1.0, -h*0.62, -F*0.98, -h*0.24);     // узкая корма
+  ctx.lineTo(-F*0.98, h*0.24);
+  ctx.quadraticCurveTo(-F*1.0, h*0.62, -F*0.80, h*0.74);
+  ctx.quadraticCurveTo(-F*0.62, h*0.99, -F*0.40, h*0.99);      // плечи задних крыльев
+  ctx.lineTo(F*0.05, h*0.96);
+  ctx.quadraticCurveTo(F*0.62, h*0.80, F*0.97, h*0.26);        // длинный покатый нос
+  ctx.quadraticCurveTo(F*1.02, 0, F*0.97, -h*0.26);
+  ctx.quadraticCurveTo(F*0.62, -h*0.80, F*0.05, -h*0.96);
+  ctx.lineTo(-F*0.40, -h*0.99);
+  ctx.quadraticCurveTo(-F*0.62, -h*0.99, -F*0.80, -h*0.74);
   ctx.closePath();
 }
 
@@ -1616,8 +1617,7 @@ function render(){
     ctx.save();
     const sx = cam.sh ? rnd(-cam.sh,cam.sh) : 0, sy = cam.sh ? rnd(-cam.sh,cam.sh) : 0;
     // камера ниже центра — впереди больше дороги, как в гоночных играх
-    ctx.translate(W/2+sx, H*(chaseOn()?0.62:0.5)+sy); ctx.scale(cam.z,cam.z);
-    if (cam.rot) ctx.rotate(cam.rot);
+    ctx.translate(W/2+sx, H/2+sy); ctx.scale(cam.z,cam.z);
     ctx.translate(-cam.x, -cam.y*T);
 
     // 1) земля — рисуется в мировых координатах, сплющенных по вертикали
