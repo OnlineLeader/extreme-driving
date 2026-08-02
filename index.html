@@ -77,7 +77,7 @@ canvas { display:block; width:100%; height:100%; }
   <button class="btn" onclick="UI.garage()">ГАРАЖ</button>
   <button class="btn" onclick="UI.shop()">МАГАЗИН</button>
   <div class="sub" id="recLine"></div>
-  <div class="sub" style="opacity:.5;font-size:12px">версия 7 · вид сверху, без поворота</div>
+  <div class="sub" style="opacity:.5;font-size:12px">версия 8 · объёмная графика, умные боты</div>
 </div>
 
 <div class="screen" id="scSetup">
@@ -482,9 +482,11 @@ class Car {
 /* ---------------- БОТЫ ---------------- */
 /* Один мозг, три характера. Меняй числа — меняется поведение соперников. */
 const BRAINS = [
-  { name:'ТАРАН',  aggr:1.00, aim:0.72, react:0.20, turboAt:210, keep:0 },
-  { name:'ХИТРЫЙ', aggr:0.78, aim:0.94, react:0.09, turboAt:150, keep:0.45 },
-  { name:'ТРУС',   aggr:0.42, aim:0.80, react:0.14, turboAt:120, keep:0.75 },
+  // aggr — напор, aim — точность прицела, react — скорость решений,
+  // turboAt — с какой дистанции идут на таран, keep — при каком здоровье отступают
+  { name:'ТАРАН',  aggr:1.00, aim:0.88, react:0.45, turboAt:260, keep:0.12 },
+  { name:'ХИТРЫЙ', aggr:0.86, aim:0.98, react:0.62, turboAt:190, keep:0.32 },
+  { name:'ОХОТНИК',aggr:0.92, aim:0.94, react:0.52, turboAt:230, keep:0.22 },
 ];
 
 function avoidObstacles(bot, world, dx, dy){
@@ -500,31 +502,57 @@ function avoidObstacles(bot, world, dx, dy){
       }
     }
   }
-  // отталкивание от стен — тем сильнее, чем ближе борт
-  const m=150, A=world.arena;
-  if (bot.x<m)      dx += Math.pow((m-bot.x)/m,2)*4.0;
-  if (bot.x>A.w-m)  dx -= Math.pow((bot.x-(A.w-m))/m,2)*4.0;
-  if (bot.y<m)      dy += Math.pow((m-bot.y)/m,2)*4.0;
-  if (bot.y>A.h-m)  dy -= Math.pow((bot.y-(A.h-m))/m,2)*4.0;
+  // Стены: не отталкиваемся в лоб (от этого боты наматывали круги вдоль борта),
+  // а СКОЛЬЗИМ вдоль стены в сторону цели — как настоящий водитель у отбойника.
+  const A = world.arena, near = 130;
+  const walls = [];
+  if (bot.x < near)       walls.push([ 1, 0, (near-bot.x)/near]);
+  if (bot.x > A.w-near)   walls.push([-1, 0, (bot.x-(A.w-near))/near]);
+  if (bot.y < near)       walls.push([ 0, 1, (near-bot.y)/near]);
+  if (bot.y > A.h-near)   walls.push([ 0,-1, (bot.y-(A.h-near))/near]);
+  for (const [nx, ny, force] of walls){
+    const into = dx*nx + dy*ny;              // проекция курса на нормаль стены
+    if (into < 0){                           // курс ведёт В стену — гасим эту составляющую
+      dx -= nx*into; dy -= ny*into;
+    }
+    dx += nx*force*1.2; dy += ny*force*1.2;  // мягкий увод от борта
+  }
   return {dx,dy};
 }
 
-/* Разблокировка: если бот почти не двигается — значит уткнулся.
-   Сдаём назад и уводим нос в сторону, как делает живой водитель. */
-function unstick(bot, inp){
+/* Разблокировка. Ловим два вида залипания:
+   1) бот буксует на месте;
+   2) бот ездит, но не приближается к цели — то самое бесконечное кружение у стены. */
+function unstick(bot, world, inp, target){
   const moving = Math.hypot(bot.vx, bot.vy);
-  if (moving < 0.5) bot._stuck = (bot._stuck||0) + 1; else bot._stuck = 0;
+  if (moving < 0.6) bot._stuck = (bot._stuck||0) + 1; else bot._stuck = 0;
 
-  if (bot._stuck > 26){                      // почти полсекунды буксует
-    bot._escape = 42;                        // включаем манёвр выезда
-    bot._escapeSide = Math.random()<0.5 ? 1 : -1;
-    bot._stuck = 0;
+  // прогресс к цели: если за 2 секунды не стало ближе — считаем, что кружим
+  if (target){
+    const d = Math.hypot(target.x-bot.x, target.y-bot.y);
+    bot._progT = (bot._progT||0) + 1;
+    if (bot._bestD === undefined || d < bot._bestD - 12){ bot._bestD = d; bot._progT = 0; }
+    if (bot._progT > 120){ bot._loop = 1; bot._progT = 0; bot._bestD = undefined; }
   }
+
+  if (bot._stuck > 22 || bot._loop){
+    bot._escape = bot._loop ? 55 : 40;
+    bot._escapeSide = Math.random()<0.5 ? 1 : -1;
+    bot._stuck = 0; bot._loop = 0;
+  }
+
   if (bot._escape > 0){
     bot._escape--;
-    const back = bot.a + Math.PI + bot._escapeSide*0.7;
-    inp.dir = true; inp.dx = Math.cos(back); inp.dy = Math.sin(back);
-    inp.turbo = false; inp.boost = 1.1;
+    const A = world.arena;
+    // уходим к центру арены — оттуда всегда есть выезд, в отличие от «назад»
+    let ex = A.w/2 - bot.x, ey = A.h/2 - bot.y;
+    const el = Math.hypot(ex,ey)||1; ex/=el; ey/=el;
+    // с доворотом в бок, чтобы не толкаться лоб в лоб с тем, кто прижал
+    const s = bot._escapeSide;
+    inp.dir = true;
+    inp.dx = ex*0.82 - ey*s*0.58;
+    inp.dy = ey*0.82 + ex*s*0.58;
+    inp.turbo = false; inp.boost = 1.25;
   }
   return inp;
 }
@@ -535,24 +563,41 @@ function botThink(bot, world){
   const b = bot.brain;
   bot._t = (bot._t||0) - 1;
   if (bot._t <= 0){                     // «время реакции» — думает не каждый кадр
-    bot._t = Math.round(6 + (1-b.react)*22);
-    // цель — ближайшая живая машина
-    let best=null, bd=1e9;
+    bot._t = Math.round(3 + (1-b.react)*14);
+    // выбор жертвы: ближе — лучше, раненый — гораздо лучше, игрок — приоритет
+    let best=null, bs=-1e9;
     for (const c of world.cars){
       if (c===bot || c.dead>0) continue;
       const d = dist(bot,c);
-      if (c.pi>=0) { if (d*0.75 < bd){ bd=d*0.75; best=c; } }   // игроков предпочитает
-      else if (d < bd){ bd=d; best=c; }
+      let score = 1000 - d;                       // ближних предпочитаем
+      score += (1 - c.hp/c.maxHp) * 700;          // добиваем подранков
+      if (c.pi>=0) score += 350;                  // за игроком охотятся охотнее
+      if (c.sp < 1.2) score += 180;               // стоящий — лёгкая добыча
+      if (score > bs){ bs = score; best = c; }
     }
     bot._target = best;
 
     if (best){
-      // точка перехвата: куда цель приедет через N кадров
-      const lead = 14 * b.aim;
+      // упреждение: куда цель приедет, пока мы доедем
+      const d = dist(bot, best);
+      const lead = clamp(d / (S.МАКС_СКОРОСТЬ*1.4), 6, 34) * b.aim;
       let tx = best.x + best.vx*lead, ty = best.y + best.vy*lead;
-      // трус на низком здоровье убегает
+
       const scared = bot.hp < bot.maxHp*b.keep;
-      if (scared){ tx = bot.x*2 - best.x; ty = bot.y*2 - best.y; }
+      if (scared){
+        // отступаем, но не тупо назад — по дуге, чтобы восстановить турбо и вернуться
+        const ax = bot.x - best.x, ay = bot.y - best.y, al = Math.hypot(ax,ay)||1;
+        tx = bot.x + (ax/al)*300 - (ay/al)*220;
+        ty = bot.y + (ay/al)*300 + (ax/al)*220;
+      } else if (d > 150){
+        // заходим сбоку от курса жертвы: удар в борт снимает больше здоровья
+        const vlen = Math.hypot(best.vx, best.vy);
+        if (vlen > 0.8){
+          const side = ((bot.x-best.x)*(-best.vy) + (bot.y-best.y)*(best.vx)) > 0 ? 1 : -1;
+          tx += (-best.vy/vlen) * side * 70;
+          ty += ( best.vx/vlen) * side * 70;
+        }
+      }
       bot._aim = { x:tx, y:ty, scared };
     }
   }
@@ -568,12 +613,12 @@ function botThink(bot, world){
 
   const nl = Math.hypot(dx,dy)||1;
   inp.dir=true; inp.dx=dx/nl; inp.dy=dy/nl;
-  inp.boost = 0.75 + b.aggr*0.55;
+  inp.boost = 1.0 + b.aggr*0.45;
   // турбо — на разгоне в таран, когда цель уже перед носом
   const nose = Math.cos(bot.a)*dx + Math.sin(bot.a)*dy;
-  if (!aim.scared && d < b.turboAt && nose > 0.55 && bot.turbo > 25) inp.turbo = true;
-  if (aim.scared && bot.turbo > 40) inp.turbo = true;
-  return unstick(bot, inp);
+  if (!aim.scared && d < b.turboAt && nose > 0.42 && bot.turbo > 18) inp.turbo = true;
+  if (aim.scared && bot.turbo > 35) inp.turbo = true;
+  return unstick(bot, world, inp, bot._target || aim);
 }
 
 /* Боты в ГОНКЕ и ИСПЫТАНИЯХ едут по чекпоинтам трассы, а не друг за другом */
@@ -594,7 +639,7 @@ function botThinkRace(bot, world){
   // турбо только когда нос смотрит на цель — иначе улетают с трассы
   const nose = Math.cos(bot.a)*(dx/nl) + Math.sin(bot.a)*(dy/nl);
   if (bot.turbo > 30 && nose > 0.75) inp.turbo = true;
-  return unstick(bot, inp);
+  return unstick(bot, world, inp, {x:tx, y:ty});
 }
 
 /* ---------------- КАМЕРА / ТРЯСКА / СТОП-КАДР ---------------- */
@@ -1121,25 +1166,40 @@ function drawObs(o){
             : t==='cone' ? r*1.4 : r*0.5;
   const bx = x, by = y*T;
 
-  // тень — прижата к основанию, иначе висит вокруг объекта ореолом
-  ctx.fillStyle='rgba(0,0,0,.34)';
-  ctx.beginPath(); ctx.ellipse(bx+3, by+2, r*0.92, r*0.5, 0, 0, 6.283); ctx.fill();
+  // мягкая тень
+  softShadow(bx, by+2, r*0.9, r*0.5, 0, 0.38);
 
-  // боковина: у контейнера прямые углы, у бочки и шины — цилиндр
-  const side = t==='crate' ? shade(o[4]||'#a5763d',0.55)
-             : t==='barrel' ? '#8f241c' : t==='tire' ? '#1b1e26'
-             : t==='cone' ? '#c94a10' : '#4a4034';
-  ctx.fillStyle = side;
+  // боковина с подсветкой слева: цилиндр получает круглый градиент,
+  // контейнер — линейный, поэтому оба читаются объёмными
+  const baseCol = t==='crate' ? (o[4]||'#a5763d')
+                : t==='barrel' ? '#d93b30' : t==='tire' ? '#2b2e38'
+                : t==='cone' ? '#ff6a1a' : '#6b5340';
   if (t==='crate'){
+    const g = ctx.createLinearGradient(bx-r, 0, bx+r, 0);
+    g.addColorStop(0,   shade(baseCol, 0.78));
+    g.addColorStop(0.4, shade(baseCol, 0.58));
+    g.addColorStop(1,   shade(baseCol, 0.34));
+    ctx.fillStyle = g;
     ctx.fillRect(bx-r, by-hgt, r*2, hgt + r*T);
-    ctx.fillStyle = shade(o[4]||'#a5763d', 0.4);
-    ctx.fillRect(bx-r, by-hgt+ (hgt+r*T)*0.72, r*2, (hgt+r*T)*0.28);   // тень у основания
+    ctx.fillStyle = 'rgba(0,0,0,.28)';
+    ctx.fillRect(bx-r, by-hgt+(hgt+r*T)*0.78, r*2, (hgt+r*T)*0.22);
   } else {
+    const g = ctx.createLinearGradient(bx-r, 0, bx+r, 0);
+    g.addColorStop(0,    shade(baseCol, 0.85));
+    g.addColorStop(0.28, shade(baseCol, 0.62));
+    g.addColorStop(0.72, shade(baseCol, 0.42));
+    g.addColorStop(1,    shade(baseCol, 0.3));
+    ctx.fillStyle = g;
     ctx.beginPath();
     ctx.ellipse(bx, by, r, r*T, 0, 0, Math.PI);          // низ цилиндра
     ctx.lineTo(bx-r, by-hgt); ctx.lineTo(bx+r, by-hgt);
     ctx.closePath(); ctx.fill();
     ctx.fillRect(bx-r, by-hgt, r*2, hgt);
+    // вертикальный блик — только на высоких гладких объектах (бочка, конус)
+    if (t==='barrel' || t==='cone'){
+      ctx.fillStyle = 'rgba(255,255,255,.13)';
+      ctx.fillRect(bx-r*0.62, by-hgt, r*0.2, hgt);
+    }
   }
 
   // крышка — прежний рисунок, но приподнятый и сжатый по вертикали
@@ -1194,8 +1254,36 @@ function drawObsTop(o, r, t){
 /* Затемняет цвет — для боковых граней кузова */
 function shade(hex, k){
   const n = parseInt(hex.slice(1),16);
-  const r = Math.round(((n>>16)&255)*k), g = Math.round(((n>>8)&255)*k), b = Math.round((n&255)*k);
+  const r = Math.round(Math.min(255,((n>>16)&255)*k)),
+        g = Math.round(Math.min(255,((n>>8)&255)*k)),
+        b = Math.round(Math.min(255,(n&255)*k));
   return `rgb(${r},${g},${b})`;
+}
+/* Тот же цвет, но с прозрачностью — для бликов и подсветки */
+function tint(hex, k, a){
+  const n = parseInt(hex.slice(1),16);
+  const r = Math.round(Math.min(255,((n>>16)&255)*k)),
+        g = Math.round(Math.min(255,((n>>8)&255)*k)),
+        b = Math.round(Math.min(255,(n&255)*k));
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+/* Единый источник света сцены: сверху-слева. Всё освещается согласованно,
+   поэтому картинка читается объёмной, а не набором плоских пятен. */
+const LIGHT = { x:-0.55, y:-0.83 };
+
+/* Мягкая тень: несколько эллипсов с падающей прозрачностью вместо одного пятна */
+function softShadow(x, y, rx, ry, rot, strength){
+  const T = S.НАКЛОН;
+  const ox = -LIGHT.x*10, oy = -LIGHT.y*10*T;
+  for (let i=3; i>=1; i--){
+    ctx.fillStyle = `rgba(0,0,0,${(strength||0.4) * (i===1?0.5:0.18)})`;
+    ctx.save();
+    ctx.transform(Math.cos(rot||0), Math.sin(rot||0)*T, -Math.sin(rot||0), Math.cos(rot||0)*T,
+                  x+ox*0.5, y+oy*0.5);
+    ctx.beginPath(); ctx.ellipse(0, 0, rx*(1+i*0.10), ry*(1+i*0.10), 0, 0, 6.283); ctx.fill();
+    ctx.restore();
+  }
 }
 
 /* Машина в изометрии: плоское основание выдавливается вверх на ВЫСОТА_МАШИНЫ,
@@ -1209,11 +1297,8 @@ function drawCar(c){
 
   if (dead) ctx.globalAlpha = 0.3 + 0.25*Math.sin(performance.now()/90);
 
-  // ---- тень на земле ----
-  ctx.fillStyle='rgba(0,0,0,.42)';
-  ctx.save(); ctx.transform(cos, sin*T, -sin, cos*T, bx, by+3);
-  ctx.beginPath(); ctx.ellipse(0,0,L*0.52,Wd*0.55,0,0,6.283); ctx.fill();
-  ctx.restore();
+  // ---- мягкая тень на земле ----
+  softShadow(bx, by+3, L*0.5, Wd*0.5, ang, 0.45);
 
   // ---- лучи фар: ночью светят заметно, днём почти нет ----
   if (S.ФАРЫ_СВЕТЯТ && !dead){
@@ -1247,22 +1332,33 @@ function drawCar(c){
     ctx.fillStyle=g; ctx.beginPath(); ctx.arc(ex,ey,34,0,6.283); ctx.fill();
   }
 
-  // ---- колёса: чуть шире кузова, поэтому видны по бортам ----
+  // ---- колёса с дисками ----
   for (const sx of [-1,1]) for (const sy of [-1,1]){
-    const lx = sx*L*0.29, ly = sy*(Wd*0.5);
+    const lx = sx*L*0.29, ly = sy*(Wd*0.52);
     ctx.save();
     ctx.transform(cos, sin*T, -sin, cos*T, bx + lx*cos - ly*sin, by + (lx*sin + ly*cos)*T);
-    ctx.fillStyle='#0d0f14';
-    rr(-L*0.10, -Wd*0.10, L*0.20, Wd*0.20, 3); ctx.fill();
+    ctx.fillStyle='#0a0c11';                                  // резина
+    rr(-L*0.105, -Wd*0.115, L*0.21, Wd*0.23, 4); ctx.fill();
+    ctx.fillStyle='#2a2f3b';                                  // диск
+    rr(-L*0.062, -Wd*0.07, L*0.124, Wd*0.14, 3); ctx.fill();
+    ctx.fillStyle='rgba(200,215,235,.55)';                    // блик на диске
+    rr(-L*0.05, -Wd*0.055, L*0.10, Wd*0.045, 2); ctx.fill();
     ctx.restore();
   }
 
-  // ---- объём кузова: силуэт «выдавливается» снизу вверх ----
-  // так борта повторяют форму машины, а не остаются прямоугольной коробкой
-  for (let d = HGT; d >= 0; d -= 2){
+  // затемнение под кузовом — машина «прилипает» к земле, а не парит над ней
+  ctx.save();
+  ctx.transform(cos, sin*T, -sin, cos*T, bx, by);
+  ctx.fillStyle='rgba(0,0,0,.32)'; carBodyPath(L*1.03, Wd*1.08); ctx.fill();
+  ctx.restore();
+
+  // ---- объём кузова: силуэт выдавливается снизу вверх с шагом в 1px,
+  //      яркость слоя зависит от высоты — получается плавный скат, а не ступеньки
+  for (let d = HGT; d >= 0; d--){
+    const t = 1 - d/HGT;
     ctx.save();
     ctx.transform(cos, sin*T, -sin, cos*T, bx, by - d);
-    ctx.fillStyle = shade(col, 0.42 + (1 - d/HGT)*0.26);
+    ctx.fillStyle = shade(col, 0.34 + t*t*0.42);
     carBodyPath(L, Wd); ctx.fill();
     ctx.restore();
   }
@@ -1316,21 +1412,40 @@ function drawCarSkin(c, def, col, L, Wd, dead){
   const skin = def.skin || 'muscle', dark = def.dark || '#222';
   const h = Wd/2;
 
-  // кузов сверху
-  ctx.fillStyle = col; carBodyPath(L, Wd); ctx.fill();
-  // низкий силуэт: тёмные борта-обвес по краям делают машину визуально приземистой
-  ctx.save(); carBodyPath(L, Wd); ctx.clip();
-  ctx.fillStyle = 'rgba(0,0,0,.35)';
-  ctx.fillRect(-L/2, -h, L, Wd*0.16);
-  ctx.fillRect(-L/2,  h-Wd*0.16, L, Wd*0.16);
-  ctx.restore();
-  // блик вдоль корпуса — объём
-  const gl = ctx.createLinearGradient(0,-h,0,h);
-  gl.addColorStop(0,'rgba(255,255,255,.24)'); gl.addColorStop(.42,'rgba(255,255,255,.05)');
-  gl.addColorStop(1,'rgba(0,0,0,.2)');
-  ctx.fillStyle = gl; carBodyPath(L, Wd); ctx.fill();
+  // ---- краска металлик: свет сверху-слева, тень справа-снизу ----
+  const paint = ctx.createLinearGradient(-L*0.1, -h*1.1, L*0.1, h*1.1);
+  paint.addColorStop(0,    shade(col, 1.28));      // засветка со стороны источника
+  paint.addColorStop(0.34, shade(col, 1.05));
+  paint.addColorStop(0.62, shade(col, 0.82));
+  paint.addColorStop(1,    shade(col, 0.55));      // затенённый борт
+  ctx.fillStyle = paint; carBodyPath(L, Wd); ctx.fill();
 
-  // ---- индивидуальный рисунок ----
+  ctx.save(); carBodyPath(L, Wd); ctx.clip();
+
+  // тёмный обвес по нижней кромке — машина смотрится приземистой
+  ctx.fillStyle = 'rgba(0,0,0,.42)';
+  ctx.fillRect(-L/2,  h-Wd*0.14, L, Wd*0.14);
+  ctx.fillStyle = 'rgba(0,0,0,.2)';
+  ctx.fillRect(-L/2, -h, L, Wd*0.1);
+
+  // острый блик вдоль кузова — главный признак лакированного металла
+  const spec = ctx.createLinearGradient(0, -h*0.72, 0, -h*0.2);
+  spec.addColorStop(0,'rgba(255,255,255,0)');
+  spec.addColorStop(0.5,'rgba(255,255,255,.55)');
+  spec.addColorStop(1,'rgba(255,255,255,0)');
+  ctx.fillStyle = spec;
+  ctx.fillRect(-L*0.42, -h*0.72, L*0.84, h*0.52);
+
+  // рёбра жёсткости на капоте
+  ctx.strokeStyle='rgba(0,0,0,.16)'; ctx.lineWidth=1.5;
+  for (const s of [-1,1]){
+    ctx.beginPath();
+    ctx.moveTo(L*0.44, s*h*0.30); ctx.lineTo(L*0.06, s*h*0.44); ctx.stroke();
+  }
+  ctx.restore();
+
+  // ---- индивидуальный рисунок (обрезан по силуэту, чтобы не торчал за кузов) ----
+  ctx.save(); carBodyPath(L, Wd); ctx.clip();
   if (skin==='muscle'){
     ctx.fillStyle = dark; rr(L*0.06, -h+3, L*0.34, Wd-6, 4); ctx.fill();   // чёрный капот
     ctx.fillStyle = 'rgba(255,255,255,.75)';
@@ -1376,13 +1491,50 @@ function drawCarSkin(c, def, col, L, Wd, dead){
     }
   }
 
-  // ---- стекло: лобовое + заднее ----
-  const glass = ctx.createLinearGradient(-L*0.2,0,L*0.3,0);
-  glass.addColorStop(0,'rgba(150,200,255,.5)'); glass.addColorStop(1,'rgba(40,60,95,.92)');
-  ctx.fillStyle = glass; rr(L*0.02, -h+5, L*0.2, Wd-10, 3); ctx.fill();
-  ctx.fillStyle = 'rgba(35,52,80,.9)'; rr(-L*0.3, -h+5, L*0.15, Wd-10, 3); ctx.fill();
+  ctx.restore();   // конец обрезки по силуэту
+
+  // ---- остекление: лобовое, заднее и крыша ----
+  // лобовое — трапецией, сужается к носу, как на настоящей машине
+  ctx.beginPath();
+  ctx.moveTo(L*0.24, -h*0.50); ctx.lineTo(L*0.24, h*0.50);
+  ctx.lineTo(L*0.02, h*0.66);  ctx.lineTo(L*0.02, -h*0.66);
+  ctx.closePath();
+  const glass = ctx.createLinearGradient(L*0.02, -h*0.6, L*0.26, h*0.5);
+  glass.addColorStop(0,'rgba(186,224,255,.85)');    // отражение неба
+  glass.addColorStop(0.45,'rgba(70,105,155,.92)');
+  glass.addColorStop(1,'rgba(24,38,64,.96)');
+  ctx.fillStyle = glass; ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,.35)'; ctx.lineWidth=1.4; ctx.stroke();
+
   // крыша между стёклами
-  ctx.fillStyle = 'rgba(255,255,255,.1)'; rr(-L*0.14, -h+5, L*0.15, Wd-10, 3); ctx.fill();
+  ctx.fillStyle = shade(col, 0.92);
+  rr(-L*0.20, -h*0.62, L*0.40, Wd*0.62, 3); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.14)';
+  rr(-L*0.20, -h*0.62, L*0.40, Wd*0.2, 3); ctx.fill();
+
+  // заднее стекло
+  ctx.beginPath();
+  ctx.moveTo(-L*0.22, -h*0.60); ctx.lineTo(-L*0.22, h*0.60);
+  ctx.lineTo(-L*0.38, h*0.44);  ctx.lineTo(-L*0.38, -h*0.44);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(30,46,74,.94)'; ctx.fill();
+  ctx.strokeStyle='rgba(0,0,0,.3)'; ctx.stroke();
+
+  // зеркала заднего вида
+  ctx.fillStyle = shade(col, 0.7);
+  for (const s of [-1,1]){
+    rr(L*0.20, s*h*0.86 - (s>0?0:Wd*0.09), L*0.07, Wd*0.09, 2); ctx.fill();
+  }
+
+  // решётка радиатора и воздухозаборник в носу
+  ctx.fillStyle='rgba(10,12,18,.85)';
+  rr(L*0.40, -h*0.34, L*0.06, Wd*0.68, 2); ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,.08)';
+  for (let i=0;i<3;i++) ctx.fillRect(L*0.405, -h*0.3 + i*Wd*0.22, L*0.05, 1.6);
+
+  // задний диффузор
+  ctx.fillStyle='rgba(10,12,18,.6)';
+  rr(-L*0.49, -h*0.4, L*0.05, Wd*0.8, 2); ctx.fill();
 
   // ---- антикрыло: вписано в корму, не торчит за силуэт ----
   if (def.spoiler){
