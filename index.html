@@ -77,7 +77,7 @@ canvas { display:block; width:100%; height:100%; }
   <button class="btn" onclick="UI.garage()">ГАРАЖ</button>
   <button class="btn" onclick="UI.shop()">МАГАЗИН</button>
   <div class="sub" id="recLine"></div>
-  <div class="sub" style="opacity:.5;font-size:12px">версия 8 · объёмная графика, умные боты</div>
+  <div class="sub" style="opacity:.5;font-size:12px">версия 9 · монстр-траки, трамплины, злые боты</div>
 </div>
 
 <div class="screen" id="scSetup">
@@ -186,6 +186,11 @@ const S = {
   ЦЕНА_ТЮНИНГА_БАЗА:   150,  // цена первого уровня улучшения
   ЦЕНА_ТЮНИНГА_РОСТ:   1.55, // во сколько раз дорожает каждый следующий уровень
 
+  // --- ТРАМПЛИНЫ ---
+  СИЛА_ТРАМПЛИНА:     3.6,   // как высоко подбрасывает
+  ГРАВИТАЦИЯ:         0.14,  // как быстро машина падает обратно
+  РАЗГОН_ТРАМПЛИНА:   1.35,  // ускорение при заезде на трамплин
+
   // --- ДЕНЬ И НОЧЬ ---
   СЕКУНД_В_СУТКАХ:    75,    // за сколько секунд проходит полный цикл день→ночь
   НОЧЬ_ТЕМНОТА:       0.62,  // насколько темно ночью (0 = светло, 0.9 = совсем темно)
@@ -199,7 +204,9 @@ const S = {
 
   // --- ВИД КАМЕРЫ ---
   НАКЛОН:             0.58,  // 1 = строго сверху, 0.3 = сильно сбоку
-  ВЫСОТА_МАШИНЫ:      4,    // насколько машина «толстая» в высоту
+  ВЫСОТА_МАШИНЫ:      15,   // высота кузова монстр-трака    // насколько машина «толстая» в высоту
+  ПОДВЕСКА:           17,   // просвет: на сколько кузов поднят над колёсами
+  КОЛЕСО:             0.235, // размер колёс относительно длины машины
   КАМЕРА_ЗА_МАШИНОЙ:  false,  // true = камера разворачивается за машину (как в гонках)
                              // работает только при игре одному; вдвоём — общий вид
   ПОВОРОТ_ПЛАВНОСТЬ:  0.07,  // как быстро камера доворачивает за машиной
@@ -220,17 +227,17 @@ const S = {
    dark — цвет крыши и деталей, spoiler — антикрыло, num — номер на кузове */
 const CARS = [
   { id:'rustler',  name:'RUSTLER',   price:0,    color:'#e8433a', dark:'#2b2f3a', skin:'muscle',
-    spoiler:false, num:'7',  spd:1.00, acc:1.00, hp:1.00, len:64, wid:28 },
+    spoiler:false, num:'7',  spd:1.00, acc:1.00, hp:1.00, len:60, wid:46 },
   { id:'bulldozer',name:'BULLDOZER', price:500,  color:'#57c94a', dark:'#2f3a2c', skin:'offroad',
-    spoiler:false, num:'4',  spd:0.88, acc:0.92, hp:1.45, len:64, wid:33 },
+    spoiler:false, num:'4',  spd:0.88, acc:0.92, hp:1.45, len:62, wid:50 },
   { id:'phantom',  name:'PHANTOM',   price:900,  color:'#3d84f7', dark:'#1b2740', skin:'sport',
-    spoiler:true,  num:'12', spd:1.12, acc:1.10, hp:0.85, len:66, wid:27 },
+    spoiler:true,  num:'12', spd:1.12, acc:1.10, hp:0.85, len:60, wid:46 },
   { id:'thunder',  name:'THUNDER',   price:1600, color:'#ffc93c', dark:'#3a2f14', skin:'race',
-    spoiler:true,  num:'3',  spd:1.18, acc:1.16, hp:0.92, len:66, wid:27 },
+    spoiler:true,  num:'3',  spd:1.18, acc:1.16, hp:0.92, len:60, wid:46 },
   { id:'shadow',   name:'SHADOW',    price:2600, color:'#8b5cf6', dark:'#15121f', skin:'stealth',
-    spoiler:true,  num:'99', spd:1.26, acc:1.22, hp:0.95, len:66, wid:27 },
+    spoiler:true,  num:'99', spd:1.26, acc:1.22, hp:0.95, len:60, wid:46 },
   { id:'blaze',    name:'BLAZE',     price:4000, color:'#ff7a1a', dark:'#3a1c08', skin:'flame',
-    spoiler:true,  num:'1',  spd:1.34, acc:1.30, hp:1.05, len:68, wid:28 },
+    spoiler:true,  num:'1',  spd:1.34, acc:1.30, hp:1.05, len:62, wid:48 },
 ];
 
 /* --- АРЕНЫ: размер поля, цвета и препятствия (x, y, радиус, тип) ---
@@ -245,17 +252,20 @@ const ARENAS = [
          [560,525,20,'cone'],[940,525,20,'cone'],
          [270,180,34,'crate','#ffc93c'],[1230,180,34,'crate','#8b5cf6'],
          [270,870,34,'crate','#ff7a1a'],[1230,870,34,'crate','#35e0ff'],
-         [520,430,20,'cone'],[980,430,20,'cone'],[520,620,20,'cone'],[980,620,20,'cone']] },
+         [520,430,20,'cone'],[980,430,20,'cone'],[520,620,20,'cone'],[980,620,20,'cone']],
+    ramps:[[750,330,58,0],[750,720,58,Math.PI],[380,525,58,-Math.PI/2],[1120,525,58,Math.PI/2]] },
   { id:'canyon', name:'ПУСТЫННЫЙ КАНЬОН', w:1700, h:1000,
     floor:'#8a5f3c', out:'#5c3d26', line:'#a5744a', accent:'#ff8c3a', theme:'desert',
     obs:[[560,500,86,'rock'],[1140,500,86,'rock'],[850,220,52,'rock'],[850,780,52,'rock'],
          [300,250,44,'rock'],[1400,750,44,'rock'],
-         [850,500,26,'barrel'],[430,720,20,'cone'],[1270,280,20,'cone']] },
+         [850,500,26,'barrel'],[430,720,20,'cone'],[1270,280,20,'cone']],
+    ramps:[[850,330,60,0],[850,680,60,Math.PI],[500,500,60,-Math.PI/2],[1200,500,60,Math.PI/2]] },
   { id:'stadium', name:'СТАДИОН', w:1350, h:1350,
     floor:'#2f7a3e', out:'#1a4726', line:'#48a055', accent:'#ffffff', theme:'stadium',
     obs:[[675,675,110,'crate'],[675,300,40,'tire'],[675,1050,40,'tire'],
          [300,675,40,'tire'],[1050,675,40,'tire'],
-         [460,460,20,'cone'],[890,460,20,'cone'],[460,890,20,'cone'],[890,890,20,'cone']] },
+         [460,460,20,'cone'],[890,460,20,'cone'],[460,890,20,'cone'],[890,890,20,'cone']],
+    ramps:[[675,480,62,0],[675,870,62,Math.PI],[470,675,62,-Math.PI/2],[880,675,62,Math.PI/2]] },
 ];
 
 /* --- РЕЖИМЫ --- */
@@ -418,6 +428,7 @@ class Car {
     this.wob=0; this.boosting=false;
     // состояние для режимов ГОНКА / ИСПЫТАНИЯ
     this.cp=0; this.lap=0; this.finished=false; this.finishFrame=0; this.place=0;
+    this.z=0; this.vz=0;                    // высота полёта после трамплина
   }
   drive(inp){
     if(this.dead>0) return;
@@ -453,6 +464,13 @@ class Car {
 
     // визуальные эффекты движения
     const slip = Math.hypot(this.vx-tx, this.vy-ty);
+    // пыль из-под больших колёс — монстр-трак всегда поднимает грунт
+    if (S.ЧАСТИЦЫ && this.z<=0 && Math.abs(this.sp) > 1.6 && Math.random() < 0.5){
+      const bx2 = this.x - Math.cos(this.a)*this.l*0.3;
+      const by2 = this.y - Math.sin(this.a)*this.l*0.3;
+      const side = (Math.random()<0.5?1:-1) * this.w*0.5;
+      smoke(bx2 - Math.sin(this.a)*side, by2 + Math.cos(this.a)*side, '150,140,120');
+    }
     if (slip > 0.55 || this.boosting){
       const bx = this.x - Math.cos(this.a)*16, by = this.y - Math.sin(this.a)*16;
       addSkid(bx + Math.cos(this.a+1.57)*9, by + Math.sin(this.a+1.57)*9, 4.2, .05);
@@ -461,6 +479,26 @@ class Car {
     }
     this.slip = slip;                       // нужен для визга шин
     this.wob = lerp(this.wob, slip*0.05, 0.2);
+
+    // полёт после трамплина
+    if (this.z > 0 || this.vz > 0){
+      this.z += this.vz; this.vz -= S.ГРАВИТАЦИЯ;
+      if (this.z <= 0){                     // приземление
+        const hard = this.vz < -2.2;
+        this.z = 0; this.vz = 0;
+        shake(hard ? 9 : 4); sfx('hit', hard ? 0.7 : 0.4);
+        for (let i=0;i<(hard?10:5);i++) smoke(this.x+rnd(-16,16), this.y+rnd(-16,16), '200,200,210');
+        this.sp *= hard ? 0.82 : 0.94;
+      }
+    }
+  }
+  /* Заезд на трамплин: подбрасывает и придаёт ускорение */
+  launch(power){
+    if (this.z > 0) return;
+    this.vz = S.СИЛА_ТРАМПЛИНА * (0.55 + Math.min(Math.abs(this.sp)/S.МАКС_СКОРОСТЬ,1)*0.75) * (power||1);
+    this.sp *= S.РАЗГОН_ТРАМПЛИНА;
+    sfx('coin');
+    for (let i=0;i<8;i++) smoke(this.x+rnd(-14,14), this.y+rnd(-14,14), '220,215,200');
   }
   damage(d, fx, fy){
     if(this.dead>0) return;
@@ -490,15 +528,24 @@ const BRAINS = [
 ];
 
 function avoidObstacles(bot, world, dx, dy){
-  // смотрим в две точки по курсу — близкую и дальнюю, поэтому объезд начинается заранее
-  for (const look of [46, 96]){
-    const fx = bot.x + Math.cos(bot.a)*look, fy = bot.y + Math.sin(bot.a)*look;
-    for (const o of world.arena.obs){
-      const od = Math.hypot(fx-o[0], fy-o[1]);
-      if (od < o[2] + bot.r + 18){
-        const ax = (fx-o[0])/(od||1), ay = (fy-o[1])/(od||1);
-        const k = (look===46 ? 3.2 : 1.6);
-        dx += ax*k; dy += ay*k;
+  // Препятствия ОБХОДИМ по касательной, а не отталкиваемся в лоб.
+  // Лобовое отталкивание давало клинч: цель за бочкой — бот упирается и топчется.
+  for (const o of world.arena.obs){
+    const ox = o[0]-bot.x, oy = o[1]-bot.y;
+    const od = Math.hypot(ox,oy) || 1;
+    const safe = o[2] + bot.r + 26;
+    if (od > safe + 120) continue;                 // далеко — не мешает
+    const ahead = (ox*dx + oy*dy) / od;            // препятствие по курсу?
+    if (ahead <= 0.15) continue;                   // оно сбоку или сзади — плевать
+    if (od < safe + 90){
+      // обходим с той стороны, которая ближе к текущему курсу
+      const side = (ox*(-dy) + oy*dx) > 0 ? -1 : 1;
+      const tx = -oy/od * side, ty = ox/od * side; // касательная к препятствию
+      const urgency = clamp((safe + 90 - od) / (safe + 90), 0, 1);
+      dx = dx*(1-urgency*0.85) + tx*urgency*1.6;
+      dy = dy*(1-urgency*0.85) + ty*urgency*1.6;
+      if (od < safe){                              // совсем вплотную — ещё и оттолкнёмся
+        dx -= ox/od * 1.1; dy -= oy/od * 1.1;
       }
     }
   }
@@ -527,18 +574,25 @@ function unstick(bot, world, inp, target){
   const moving = Math.hypot(bot.vx, bot.vy);
   if (moving < 0.6) bot._stuck = (bot._stuck||0) + 1; else bot._stuck = 0;
 
-  // прогресс к цели: если за 2 секунды не стало ближе — считаем, что кружим
-  if (target){
+  // Прогресс считаем ТОЛЬКО по неподвижной цели (чекпоинт). За живой машиной
+  // дистанция не сокращается просто потому, что она убегает — раньше из-за этого
+  // боты почти всё время уезжали «распутываться» вместо драки.
+  if (target && target.still){
     const d = Math.hypot(target.x-bot.x, target.y-bot.y);
     bot._progT = (bot._progT||0) + 1;
     if (bot._bestD === undefined || d < bot._bestD - 12){ bot._bestD = d; bot._progT = 0; }
-    if (bot._progT > 120){ bot._loop = 1; bot._progT = 0; bot._bestD = undefined; }
-  }
+    if (bot._progT > 180){ bot._loop = 1; bot._progT = 0; bot._bestD = undefined; }
+  } else { bot._progT = 0; bot._bestD = undefined; }
 
-  if (bot._stuck > 22 || bot._loop){
-    bot._escape = bot._loop ? 55 : 40;
+  // второй признак настоящего залипания: долго трёмся о край арены на малом ходу
+  const A = world.arena;
+  const edge = Math.min(bot.x, bot.y, A.w-bot.x, A.h-bot.y);
+  if (edge < 70 && moving < 1.8) bot._hug = (bot._hug||0) + 1; else bot._hug = 0;
+
+  if (bot._stuck > 22 || bot._loop || bot._hug > 90){
+    bot._escape = 34;
     bot._escapeSide = Math.random()<0.5 ? 1 : -1;
-    bot._stuck = 0; bot._loop = 0;
+    bot._stuck = 0; bot._loop = 0; bot._hug = 0;
   }
 
   if (bot._escape > 0){
@@ -571,7 +625,7 @@ function botThink(bot, world){
       const d = dist(bot,c);
       let score = 1000 - d;                       // ближних предпочитаем
       score += (1 - c.hp/c.maxHp) * 700;          // добиваем подранков
-      if (c.pi>=0) score += 350;                  // за игроком охотятся охотнее
+      if (c.pi>=0) score += 900;                  // за игроком охотятся заметно охотнее
       if (c.sp < 1.2) score += 180;               // стоящий — лёгкая добыча
       if (score > bs){ bs = score; best = c; }
     }
@@ -639,7 +693,7 @@ function botThinkRace(bot, world){
   // турбо только когда нос смотрит на цель — иначе улетают с трассы
   const nose = Math.cos(bot.a)*(dx/nl) + Math.sin(bot.a)*(dy/nl);
   if (bot.turbo > 30 && nose > 0.75) inp.turbo = true;
-  return unstick(bot, world, inp, {x:tx, y:ty});
+  return unstick(bot, world, inp, {x:tx, y:ty, still:true});
 }
 
 /* ---------------- КАМЕРА / ТРЯСКА / СТОП-КАДР ---------------- */
@@ -697,7 +751,7 @@ function updCam(){
 /* ---------------- ЗВУК ----------------
    Всё синтезируется кодом, ни одного файла. Мотор — не писк приставки,
    а слоёный звук: низ блока цилиндров + гармоники + рык выхлопа + шум турбины. */
-let AC=null, master=null, ENG=null, SKID=null, noiseBuf=null;
+let AC=null, master=null, ENG=null, SKID=null, TURBO=null, noiseBuf=null;
 
 function makeNoise(){
   const len = AC.sampleRate * 2;
@@ -748,6 +802,15 @@ function audio(){
     o1.start(); o2.start(); o3.start(); nz.start();
     ENG = { g, lp, o1, o2, o3, ng };
 
+    // ----- СВИСТ ТУРБИНЫ (включается на турбо) -----
+    const to = AC.createOscillator(); to.type='sine'; to.frequency.value=1200;
+    const tf = AC.createBiquadFilter(); tf.type='bandpass'; tf.frequency.value=2600; tf.Q.value=3;
+    const tg = AC.createGain(); tg.gain.value = 0;
+    const tn = noiseSource(true);
+    tn.connect(tf); tf.connect(tg); to.connect(tg); tg.connect(master);
+    to.start(); tn.start();
+    TURBO = { g:tg, o:to, f:tf };
+
     // ----- ВИЗГ ШИН (постоянный источник, громкость по заносу) -----
     const sn = noiseSource(true);
     const sf = AC.createBiquadFilter(); sf.type='bandpass'; sf.frequency.value=2400; sf.Q.value=7;
@@ -758,6 +821,16 @@ function audio(){
 }
 
 /* rpm 0..1 — обороты, boost — турбо, skid — насколько срывает в занос */
+/* Полностью глушит мотор и визг шин — вызывается на финише и при выходе в меню */
+function silence(){
+  if (!AC) return;
+  const t = AC.currentTime;
+  if (ENG){ ENG.g.gain.cancelScheduledValues(t); ENG.g.gain.setTargetAtTime(0, t, 0.05);
+            ENG.ng.gain.cancelScheduledValues(t); ENG.ng.gain.setTargetAtTime(0, t, 0.05); }
+  if (SKID){ SKID.g.gain.cancelScheduledValues(t); SKID.g.gain.setTargetAtTime(0, t, 0.04); }
+  if (TURBO){ TURBO.g.gain.cancelScheduledValues(t); TURBO.g.gain.setTargetAtTime(0, t, 0.04); }
+}
+
 function engine(sp, boost, skid){
   if(!AC||!ENG) return;
   const on = game.state==='play';
@@ -770,6 +843,11 @@ function engine(sp, boost, skid){
   ENG.lp.frequency.setTargetAtTime(240 + rpm*950 + (boost?420:0), t, 0.1);
   ENG.ng.gain.setTargetAtTime(on ? (0.04 + rpm*0.09 + (boost?0.1:0)) : 0, t, 0.1);
   ENG.g.gain.setTargetAtTime(on ? (0.05 + rpm*0.11) : 0, t, 0.12);
+  if (TURBO){
+    TURBO.g.gain.setTargetAtTime(on && boost ? 0.045 : 0, t, 0.09);
+    TURBO.o.frequency.setTargetAtTime(900 + rpm*1500, t, 0.12);
+    TURBO.f.frequency.setTargetAtTime(2000 + rpm*2600, t, 0.12);
+  }
   if (SKID){
     SKID.g.gain.setTargetAtTime(on ? clamp(skid,0,1)*0.11 : 0, t, 0.05);
     SKID.f.frequency.setTargetAtTime(1900 + clamp(skid,0,1)*1400, t, 0.05);
@@ -827,10 +905,25 @@ function sfx(kind, power){
 }
 
 /* ---------------- ФИЗИКА СТОЛКНОВЕНИЙ ---------------- */
+/* Наезд на трамплин — проверяем до столкновений, чтобы взлетевшие их игнорировали */
+function checkRamps(world){
+  const R = world.arena.ramps; if (!R) return;
+  for (const c of world.cars){
+    if (c.dead>0 || c.z>0) continue;
+    for (const r of R){
+      if (Math.hypot(c.x-r[0], c.y-r[1]) < r[2]*0.8 && Math.abs(c.sp) > 1.2){
+        // взлетаем, только если едем более-менее в сторону наклона трамплина
+        const align = Math.cos(c.a)*Math.cos(r[3]) + Math.sin(c.a)*Math.sin(r[3]);
+        if (align > 0.35) c.launch(0.7 + align*0.5);
+      }
+    }
+  }
+}
+
 function collide(world){
   const cars = world.cars, A = world.arena;
   for (let i=0;i<cars.length;i++){
-    const a = cars[i]; if (a.dead>0) continue;
+    const a = cars[i]; if (a.dead>0 || a.z>6) continue;   // в полёте препятствия не задеваем
 
     // стены
     if (a.x < a.r){ a.x=a.r; a.vx=Math.abs(a.vx)*0.4; a.sp*=0.6; wallFx(a); }
@@ -857,7 +950,7 @@ function collide(world){
 
     // машина об машину
     for (let j=i+1;j<cars.length;j++){
-      const b = cars[j]; if (b.dead>0) continue;
+      const b = cars[j]; if (b.dead>0 || b.z>6) continue;
       const dx=b.x-a.x, dy=b.y-a.y, d=Math.hypot(dx,dy), min=a.r+b.r;
       if (d < min && d > 0){
         const nx=dx/d, ny=dy/d, pen=(min-d)/2;
@@ -1158,6 +1251,44 @@ function drawTrack(circuit){
   });
   ctx.restore();
 }
+/* Трамплин: наклонная плита с полосатой кромкой и стрелкой взлёта */
+function drawRamp(r){
+  const T = S.НАКЛОН, [x,y,rad,dir] = r;
+  const bx = x, by = y*T, H = rad*0.5;
+  const cos = Math.cos(dir), sin = Math.sin(dir);
+  softShadow(bx, by+3, rad*1.05, rad*0.62, dir, 0.4);
+
+  ctx.save();
+  ctx.transform(cos, sin*T, -sin, cos*T, bx, by);
+  // клин: сзади на земле, спереди поднят — рисуем слоями снизу вверх
+  for (let i=0; i<=H; i++){
+    const t = i/H;
+    ctx.save(); ctx.translate(0, -i);
+    ctx.fillStyle = shade('#4a5163', 0.55 + t*0.75);
+    // чем выше слой, тем короче — получается скат
+    rr(-rad*0.95 + rad*1.1*t*0.55, -rad*0.72, rad*1.9 - rad*1.1*t*0.55, rad*1.44, 5);
+    ctx.fill();
+    ctx.restore();
+  }
+  // верхняя площадка
+  ctx.save(); ctx.translate(0, -H);
+  ctx.fillStyle = '#5d657a';
+  rr(-rad*0.4, -rad*0.72, rad*1.35, rad*1.44, 5); ctx.fill();
+  // полосатая кромка взлёта
+  for (let i=0;i<6;i++){
+    ctx.fillStyle = i%2 ? '#ffd23f' : '#20242e';
+    ctx.fillRect(rad*0.72, -rad*0.72 + i*(rad*1.44/6), rad*0.22, rad*1.44/6);
+  }
+  // стрелка направления
+  ctx.fillStyle='rgba(255,255,255,.55)';
+  ctx.beginPath();
+  ctx.moveTo(rad*0.55, 0); ctx.lineTo(rad*0.05, -rad*0.34); ctx.lineTo(rad*0.05, -rad*0.12);
+  ctx.lineTo(-rad*0.42, -rad*0.12); ctx.lineTo(-rad*0.42, rad*0.12); ctx.lineTo(rad*0.05, rad*0.12);
+  ctx.lineTo(rad*0.05, rad*0.34); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  ctx.restore();
+}
+
 /* Препятствие в изометрии: тень на земле, боковина нужной высоты, крышка сверху */
 function drawObs(o){
   const [x,y,r,t] = o;
@@ -1293,12 +1424,14 @@ function drawCar(c){
   const L = c.l, Wd = c.w, ang = c.a + c.wob;
   const cos = Math.cos(ang), sin = Math.sin(ang);
   const def = c.def, col = c.color;
-  const bx = c.x, by = c.y*T;                       // точка на земле в проекции
+  const air = c.z || 0;                             // высота полёта после трамплина
+  const bx = c.x, by = c.y*T - air;                 // точка на земле в проекции
 
   if (dead) ctx.globalAlpha = 0.3 + 0.25*Math.sin(performance.now()/90);
 
-  // ---- мягкая тень на земле ----
-  softShadow(bx, by+3, L*0.5, Wd*0.5, ang, 0.45);
+  // ---- мягкая тень: остаётся на земле и уменьшается, когда машина в воздухе ----
+  const shk = 1 / (1 + air*0.014);
+  softShadow(c.x, c.y*T+3, L*0.5*shk, Wd*0.5*shk, ang, 0.45*shk);
 
   // ---- лучи фар: ночью светят заметно, днём почти нет ----
   if (S.ФАРЫ_СВЕТЯТ && !dead){
@@ -1332,24 +1465,49 @@ function drawCar(c){
     ctx.fillStyle=g; ctx.beginPath(); ctx.arc(ex,ey,34,0,6.283); ctx.fill();
   }
 
-  // ---- колёса с дисками ----
-  for (const sx of [-1,1]) for (const sy of [-1,1]){
-    const lx = sx*L*0.29, ly = sy*(Wd*0.52);
-    ctx.save();
-    ctx.transform(cos, sin*T, -sin, cos*T, bx + lx*cos - ly*sin, by + (lx*sin + ly*cos)*T);
-    ctx.fillStyle='#0a0c11';                                  // резина
-    rr(-L*0.105, -Wd*0.115, L*0.21, Wd*0.23, 4); ctx.fill();
-    ctx.fillStyle='#2a2f3b';                                  // диск
-    rr(-L*0.062, -Wd*0.07, L*0.124, Wd*0.14, 3); ctx.fill();
-    ctx.fillStyle='rgba(200,215,235,.55)';                    // блик на диске
-    rr(-L*0.05, -Wd*0.055, L*0.10, Wd*0.045, 2); ctx.fill();
-    ctx.restore();
-  }
+  // ---- КОЛЁСА МОНСТР-ТРАКА: большие, стоят на земле, кузов висит над ними ----
+  const WR = L*S.КОЛЕСО;                                      // радиус колеса
+  const drawWheel = (sx, sy)=>{
+    const lx = sx*L*0.31, ly = sy*(Wd*0.56);
+    const wx = bx + lx*cos - ly*sin, wy = by + (lx*sin + ly*cos)*T;
+    // протектор — цилиндр с высотой
+    const g = ctx.createLinearGradient(wx-WR, 0, wx+WR, 0);
+    g.addColorStop(0,'#23262f'); g.addColorStop(0.35,'#14161d');
+    g.addColorStop(1,'#080a0e');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.ellipse(wx, wy, WR, WR*T, 0, 0, Math.PI); ctx.fill();
+    ctx.fillRect(wx-WR, wy-WR*0.95, WR*2, WR*0.95);
+    ctx.beginPath(); ctx.ellipse(wx, wy-WR*0.95, WR, WR*T, 0, 0, 6.283); ctx.fill();
+    // грунтозацепы
+    ctx.strokeStyle='rgba(255,255,255,.09)'; ctx.lineWidth=2.5;
+    for (let i=0;i<5;i++){
+      const px = wx - WR + (i+0.5)*(WR*2/5);
+      ctx.beginPath(); ctx.moveTo(px, wy-WR*0.95); ctx.lineTo(px+3, wy); ctx.stroke();
+    }
+    // диск
+    ctx.fillStyle='#c2c9d6';
+    ctx.beginPath(); ctx.ellipse(wx, wy-WR*0.95, WR*0.44, WR*0.44*T, 0, 0, 6.283); ctx.fill();
+    ctx.fillStyle='#6d7686';
+    ctx.beginPath(); ctx.ellipse(wx, wy-WR*0.95, WR*0.24, WR*0.24*T, 0, 0, 6.283); ctx.fill();
+  };
+  // дальние колёса — до кузова, ближние — после, иначе перекрытие неверное
+  drawWheel(1,-1); drawWheel(-1,-1);
 
-  // затемнение под кузовом — машина «прилипает» к земле, а не парит над ней
+  // затемнение под машиной
   ctx.save();
   ctx.transform(cos, sin*T, -sin, cos*T, bx, by);
-  ctx.fillStyle='rgba(0,0,0,.32)'; carBodyPath(L*1.03, Wd*1.08); ctx.fill();
+  ctx.fillStyle='rgba(0,0,0,.3)'; carBodyPath(L*1.02, Wd*1.06); ctx.fill();
+  ctx.restore();
+
+  // ---- рама и мосты: кузов приподнят, между ним и землёй видна подвеска ----
+  const LIFT = S.ПОДВЕСКА;
+  ctx.save();
+  ctx.transform(cos, sin*T, -sin, cos*T, bx, by - LIFT*0.5);
+  ctx.fillStyle='#2a2f3a';
+  ctx.fillRect(-L*0.34, -Wd*0.5, L*0.68, Wd*0.10);           // передний мост
+  ctx.fillRect(-L*0.34,  Wd*0.4, L*0.68, Wd*0.10);           // задний мост
+  ctx.fillStyle='#1b1f28';
+  ctx.fillRect(-L*0.30, -Wd*0.16, L*0.60, Wd*0.32);          // рама
   ctx.restore();
 
   // ---- объём кузова: силуэт выдавливается снизу вверх с шагом в 1px,
@@ -1357,23 +1515,26 @@ function drawCar(c){
   for (let d = HGT; d >= 0; d--){
     const t = 1 - d/HGT;
     ctx.save();
-    ctx.transform(cos, sin*T, -sin, cos*T, bx, by - d);
+    ctx.transform(cos, sin*T, -sin, cos*T, bx, by - d - LIFT);
     ctx.fillStyle = shade(col, 0.34 + t*t*0.42);
     carBodyPath(L, Wd); ctx.fill();
     ctx.restore();
   }
 
-  // ---- крыша и скин: рисуем в системе координат машины ----
+  // ---- крыша и скин ----
   ctx.save();
-  ctx.transform(cos, sin*T, -sin, cos*T, bx, by - HGT);
+  ctx.transform(cos, sin*T, -sin, cos*T, bx, by - HGT - LIFT);
   drawCarSkin(c, def, col, L, Wd, dead);
   ctx.restore();
+
+  // ближние колёса — поверх кузова
+  drawWheel(1,1); drawWheel(-1,1);
 
   ctx.globalAlpha = 1;
 
   // ---- маркер игрока / здоровье бота ----
   if (c.pi>=0 && !dead){
-    ctx.save(); ctx.translate(bx, by - HGT - 30);
+    ctx.save(); ctx.translate(bx, by - HGT - S.ПОДВЕСКА - 34);
     const pc = c.pi===0 ? '#5fd0ff' : '#ff8a5c';
     ctx.globalAlpha=.3; ctx.fillStyle=pc;
     ctx.beginPath(); ctx.ellipse(0, HGT+30, 20, 20*T, 0, 0, 6.283); ctx.fill();
@@ -1382,7 +1543,7 @@ function drawCar(c){
     ctx.restore();
   }
   if (c.pi<0 && !dead){
-    const p = c.hp/c.maxHp, y = by - HGT - 16;
+    const p = c.hp/c.maxHp, y = by - HGT - S.ПОДВЕСКА - 20;
     ctx.fillStyle='rgba(0,0,0,.6)'; ctx.fillRect(bx-19, y, 38, 5);
     ctx.fillStyle = p>.5?'#49d16b':p>.25?'#ffc93c':'#e8433a';
     ctx.fillRect(bx-18, y+1, 36*p, 3);
@@ -1520,11 +1681,6 @@ function drawCarSkin(c, def, col, L, Wd, dead){
   ctx.fillStyle = 'rgba(30,46,74,.94)'; ctx.fill();
   ctx.strokeStyle='rgba(0,0,0,.3)'; ctx.stroke();
 
-  // зеркала заднего вида
-  ctx.fillStyle = shade(col, 0.7);
-  for (const s of [-1,1]){
-    rr(L*0.20, s*h*0.86 - (s>0?0:Wd*0.09), L*0.07, Wd*0.09, 2); ctx.fill();
-  }
 
   // решётка радиатора и воздухозаборник в носу
   ctx.fillStyle='rgba(10,12,18,.85)';
@@ -1675,6 +1831,7 @@ function tick(){
       : botThink(c, world);
     c.drive(inp);
   }
+  checkRamps(world);
   collide(world);
   if (game.modeType !== 'combat') raceProgress(world);
   updParts();
@@ -1704,6 +1861,7 @@ function payout(html, earned){
   html += `<div class="line"><span>Всего монет</span><b>🪙 ${save.coins}</b></div>`;
   document.getElementById('resBody').innerHTML = html;
   game.state='result'; document.getElementById('hud').classList.remove('on');
+  silence();                       // иначе мотор продолжает гудеть после финиша
   UI.show('scResult');
 }
 
@@ -1787,6 +1945,7 @@ function render(){
     const objs = [];
     if (game.deco) for (const p of game.deco.props) objs.push({ y:p.y, f:()=>drawProp(p, A) });
     for (const o of A.obs) objs.push({ y:o[1], f:()=>drawObs(o) });
+    if (A.ramps) for (const r of A.ramps) objs.push({ y:r[1], f:()=>drawRamp(r) });
     for (const c of game.cars) objs.push({ y:c.y, f:()=>drawCar(c) });
     objs.sort((a,b)=>a.y-b.y);
     for (const it of objs) it.f();
@@ -1897,7 +2056,7 @@ const UI = {
     if (id==='scMenu'){
       document.getElementById('coinLine').textContent = '🪙 Джон.А: ' + save.coins;
       document.getElementById('recLine').textContent = save.best ? 'Рекорд: ' + save.best : '';
-      game.state='menu'; document.getElementById('hud').classList.remove('on');
+      game.state='menu'; document.getElementById('hud').classList.remove('on'); silence();
     }
   },
   play(){ audio(); this.buildSetup(); this.show('scSetup'); },
